@@ -5,17 +5,17 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
     background-color: #f5f5f7; color: #1d1d1f; font-size: 13px;
     -webkit-font-smoothing: antialiased; line-height: 1.45;
-    display: flex; flex-direction: column;
 }
 
-/* ── Titlebar island area ── */
+.app-container { display: flex; height: 100vh; width: 100vw; }
+
+/* ── Titlebar area — extends into transparent titlebar ── */
 .titlebar-island {
+    height: 52px; /* macOS titlebar height */
     display: flex; align-items: center; justify-content: center;
-    padding: 8px 0 4px;
     flex-shrink: 0;
+    -webkit-app-region: drag; /* make titlebar draggable */
 }
-
-.app-container { display: flex; flex: 1; width: 100vw; overflow: hidden; }
 
 /* ══════════════════════════════
    SIDEBAR — macOS Settings style
@@ -26,7 +26,8 @@ body {
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-right: 0.5px solid #c7c7cc;
     display: flex; flex-direction: column;
-    padding: 4px 0 0; user-select: none;
+    padding: 52px 0 0; /* leave space for traffic lights in titlebar */
+    user-select: none;
 }
 .sidebar-section-label {
     font-size: 11px; font-weight: 600; color: #86868b;
@@ -114,7 +115,11 @@ body {
 /* ══════════════════════════════
    MAIN PANEL — right side
    ══════════════════════════════ */
-.main-panel { flex: 1; overflow-y: auto; padding: 28px 36px; background: #fff; }
+.main-panel {
+    flex: 1; display: flex; flex-direction: column;
+    background: #fff; overflow: hidden;
+}
+.main-panel-content { flex: 1; overflow-y: auto; padding: 16px 36px 28px; }
 .page-header { margin-bottom: 28px; }
 .page-header-info h1 { font-size: 26px; font-weight: 700; color: #1d1d1f; margin-bottom: 6px; }
 .page-header-info .path { font-size: 11px; color: #86868b; word-break: break-all; }
@@ -214,8 +219,10 @@ body {
     height: 28px;
     display: inline-flex; align-items: center; justify-content: center;
     box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-    -webkit-app-region: no-drag;
+    -webkit-app-region: no-drag; /* island itself is clickable, not draggable */
 }
+.island-empty { background: rgba(0,0,0,0.06); box-shadow: none; }
+.island-empty .island-text { color: #aeaeb2; }
 .island-empty {
     padding: 0 10px;
 }

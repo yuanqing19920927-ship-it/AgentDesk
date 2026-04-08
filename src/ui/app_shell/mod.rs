@@ -202,25 +202,29 @@ pub fn AppShell() -> Element {
                 on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
             }
             div { class: "main-panel",
+                // Titlebar area with Dynamic Island
                 div { class: "titlebar-island",
                     DynamicIsland { agents: agents().clone() }
                 }
-                if show_settings() {
-                    SettingsPanel {
-                        on_close: move |_| show_settings.set(false),
-                        on_refresh: move |_| load_all_projects(),
-                    }
-                } else if let Some(project) = selected_project.clone() {
-                    Dashboard {
-                        project: project.clone(),
-                        agents: project_agents.clone(),
-                        sessions: sessions().clone(),
-                        on_new_agent: move |_| show_new_agent.set(true),
-                    }
-                } else {
-                    div { class: "empty-state",
-                        h2 { "欢迎使用 AgentDesk" }
-                        p { "从左侧选择一个项目，或点击 ＋ 添加新项目" }
+                // Content below titlebar
+                div { class: "main-panel-content",
+                    if show_settings() {
+                        SettingsPanel {
+                            on_close: move |_| show_settings.set(false),
+                            on_refresh: move |_| load_all_projects(),
+                        }
+                    } else if let Some(project) = selected_project.clone() {
+                        Dashboard {
+                            project: project.clone(),
+                            agents: project_agents.clone(),
+                            sessions: sessions().clone(),
+                            on_new_agent: move |_| show_new_agent.set(true),
+                        }
+                    } else {
+                        div { class: "empty-state",
+                            h2 { "欢迎使用 AgentDesk" }
+                            p { "从左侧选择一个项目，或在设置中添加新项目" }
+                        }
                     }
                 }
             }
