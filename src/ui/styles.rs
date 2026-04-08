@@ -1,11 +1,21 @@
 pub const GLOBAL_CSS: &str = r#"
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
     background-color: #f5f5f7; color: #1d1d1f; font-size: 13px;
     -webkit-font-smoothing: antialiased; line-height: 1.45;
+    display: flex; flex-direction: column;
 }
-.app-container { display: flex; height: 100vh; width: 100vw; }
+
+/* ── Titlebar island area ── */
+.titlebar-island {
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px 0 4px;
+    flex-shrink: 0;
+}
+
+.app-container { display: flex; flex: 1; width: 100vw; overflow: hidden; }
 
 /* ══════════════════════════════
    SIDEBAR — macOS Settings style
@@ -16,7 +26,7 @@ body {
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-right: 0.5px solid #c7c7cc;
     display: flex; flex-direction: column;
-    padding: 10px 0; user-select: none;
+    padding: 4px 0 0; user-select: none;
 }
 .sidebar-section-label {
     font-size: 11px; font-weight: 600; color: #86868b;
@@ -195,49 +205,46 @@ body {
 .btn-reorder:hover { background: #e5e5ea; }
 
 /* ══════════════════════════════
-   DYNAMIC ISLAND
+   DYNAMIC ISLAND (titlebar embedded)
    ══════════════════════════════ */
 .island {
     background: #1d1d1f;
-    border-radius: 22px;
-    padding: 6px 16px;
-    margin: 0 auto 20px;
-    max-width: 600px;
-    min-height: 36px;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-    transition: all 0.3s ease;
+    border-radius: 14px;
+    padding: 0 12px;
+    height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    -webkit-app-region: no-drag;
 }
 .island-empty {
-    max-width: 200px;
-    padding: 6px 14px;
+    padding: 0 10px;
 }
 .island-content {
-    display: flex; align-items: center; gap: 10px;
-    flex-wrap: wrap; justify-content: center;
+    display: flex; align-items: center; gap: 8px;
 }
-.island-icon { font-size: 14px; }
-.island-text { font-size: 12px; color: #86868b; }
+.island-icon { font-size: 12px; }
+.island-text { font-size: 11px; color: #86868b; }
 
 .island-group {
-    display: flex; align-items: center; gap: 4px;
+    display: flex; align-items: center; gap: 3px;
 }
 .island-dot {
     width: 6px; height: 6px; border-radius: 50%;
 }
 .island-dot.busy { background: #ff9500; animation: pulse 1.5s ease-in-out infinite; }
 .island-dot.idle { background: #34c759; }
-.island-count { font-size: 14px; font-weight: 700; color: #fff; }
-.island-label { font-size: 10px; color: #86868b; }
+.island-count { font-size: 12px; font-weight: 700; color: #fff; }
+.island-label { font-size: 9px; color: #86868b; }
 
 .island-sep {
-    width: 1px; height: 16px; background: #3a3a3c; flex-shrink: 0;
+    width: 1px; height: 12px; background: #3a3a3c; flex-shrink: 0;
 }
 
 .island-agent {
-    display: flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 12px;
-    font-size: 11px;
+    display: flex; align-items: center; gap: 3px;
+    padding: 1px 7px; border-radius: 10px;
+    font-size: 10px;
+    -webkit-app-region: no-drag;
 }
 .island-agent.busy {
     background: rgba(255, 149, 0, 0.2);
@@ -248,11 +255,11 @@ body {
     color: #34c759;
 }
 .island-agent-name { font-weight: 600; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.island-agent-cpu { font-size: 10px; opacity: 0.8; }
+.island-agent-cpu { font-size: 9px; opacity: 0.7; }
 .island-jump {
     background: none; border: none; cursor: pointer;
-    font-size: 10px; color: inherit; opacity: 0.7;
-    padding: 0 2px;
+    font-size: 9px; color: inherit; opacity: 0.6;
+    padding: 0 1px; -webkit-app-region: no-drag;
 }
 .island-jump:hover { opacity: 1; }
 .sub-badge {
