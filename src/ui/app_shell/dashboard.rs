@@ -55,8 +55,10 @@ pub fn Dashboard(
     let la = project.last_active.map(|dt| dt.with_timezone(&Local).format("%m-%d %H:%M").to_string());
     let has_la = la.is_some();
     let la_display = la.unwrap_or_default();
-    let docs = scan_docs(&project.root);
-    let summary = read_project_summary(&project.root);
+    // Skip heavy scan for home directory to prevent freeze
+    let is_home = dirs::home_dir().is_some_and(|h| h == project.root);
+    let docs = if is_home { Vec::new() } else { scan_docs(&project.root) };
+    let summary = if is_home { None } else { read_project_summary(&project.root) };
     let has_summary = summary.is_some();
     let summary_text = summary.clone().unwrap_or_default();
     let sc = sessions.len();
