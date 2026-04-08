@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use std::path::PathBuf;
 use std::process::Command;
+use chrono::Local;
 use crate::models::{Agent, Project, SessionMessage, SessionSummary};
 use crate::services::session_reader;
 
@@ -69,7 +70,7 @@ pub fn Dashboard(
     sessions: Vec<SessionSummary>,
     on_new_agent: EventHandler<()>,
 ) -> Element {
-    let last_active_str = project.last_active.map(|dt| dt.format("%m-%d %H:%M").to_string());
+    let last_active_str = project.last_active.map(|dt| dt.with_timezone(&Local).format("%m-%d %H:%M").to_string());
     let has_last_active = last_active_str.is_some();
     let last_active_display = last_active_str.unwrap_or_default();
 
@@ -219,7 +220,7 @@ pub fn Dashboard(
                         let sid = session.session_id.clone();
                         let is_expanded = expanded_session() == Some(sid.clone());
                         let ts_str = session.started_at
-                            .map(|ts| ts.format("%m-%d %H:%M").to_string())
+                            .map(|ts| ts.with_timezone(&Local).format("%m-%d %H:%M").to_string())
                             .unwrap_or_default();
                         let has_ts = session.started_at.is_some();
                         let msg_count = session.message_count;
@@ -297,7 +298,7 @@ pub fn Dashboard(
                                                 let role_label = if is_user { "用户" } else { "助手" };
                                                 let bubble_cls = if is_user { "msg-bubble msg-user" } else { "msg-bubble msg-assistant" };
                                                 let ts_display = msg.timestamp
-                                                    .map(|t| t.format("%H:%M:%S").to_string())
+                                                    .map(|t| t.with_timezone(&Local).format("%H:%M:%S").to_string())
                                                     .unwrap_or_default();
                                                 let has_msg_ts = msg.timestamp.is_some();
                                                 let content_display = truncate_msg(&msg.content, 2000);
