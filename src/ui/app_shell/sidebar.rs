@@ -19,7 +19,7 @@ pub fn Sidebar(
     on_select: EventHandler<usize>,
     on_add_project: EventHandler<()>,
 ) -> Element {
-    let nicknames = use_hook(|| project_manager::load_nicknames());
+    let mut nicknames = use_signal(|| project_manager::load_nicknames());
     let mut editing_idx = use_signal(|| None::<usize>);
     let mut edit_value = use_signal(String::new);
     let mut ctx_menu = use_signal(|| None::<(usize, f64, f64)>);
@@ -40,7 +40,7 @@ pub fn Sidebar(
                     let hp = &projects[hi];
                     let is_sel = selected_idx == Some(hi);
                     let cls = if is_sel { "home-item selected" } else { "home-item" };
-                    let nick = nicknames.get(&hp.root.to_string_lossy().to_string()).cloned();
+                    let nick = nicknames().get(&hp.root.to_string_lossy().to_string()).cloned();
                     let display = nick.unwrap_or_else(|| "主目录".to_string());
                     let ac = hp.agent_count;
                     let sc = hp.session_count;
@@ -62,10 +62,10 @@ pub fn Sidebar(
                                         onclick: move |e| e.stop_propagation(),
                                         oninput: move |e| edit_value.set(e.value()),
                                         onkeydown: { let p = hr.clone(); move |e: KeyboardEvent| {
-                                            if e.key() == Key::Enter { project_manager::set_nickname(&p, &edit_value()); editing_idx.set(None); }
+                                            if e.key() == Key::Enter { project_manager::set_nickname(&p, &edit_value()); nicknames.set(project_manager::load_nicknames()); editing_idx.set(None); }
                                             else if e.key() == Key::Escape { editing_idx.set(None); }
                                         }},
-                                        onfocusout: { let p = hr.clone(); move |_| { project_manager::set_nickname(&p, &edit_value()); editing_idx.set(None); }},
+                                        onfocusout: { let p = hr.clone(); move |_| { project_manager::set_nickname(&p, &edit_value()); nicknames.set(project_manager::load_nicknames()); editing_idx.set(None); }},
                                     }
                                 } else {
                                     div { class: "home-name", "{display}" }
@@ -98,7 +98,7 @@ pub fn Sidebar(
                         let ac = project.agent_count;
                         let sc = project.session_count;
                         let rs = project.root.to_string_lossy().to_string();
-                        let nick = nicknames.get(&rs).cloned();
+                        let nick = nicknames().get(&rs).cloned();
                         let dn = nick.clone().unwrap_or_else(|| project.name.clone());
                         let has_nick = nick.is_some();
                         let rk = rs.clone();
@@ -120,10 +120,10 @@ pub fn Sidebar(
                                             onclick: move |e| e.stop_propagation(),
                                             oninput: move |e| edit_value.set(e.value()),
                                             onkeydown: move |e| {
-                                                if e.key() == Key::Enter { project_manager::set_nickname(&rk, &edit_value()); editing_idx.set(None); }
+                                                if e.key() == Key::Enter { project_manager::set_nickname(&rk, &edit_value()); nicknames.set(project_manager::load_nicknames()); editing_idx.set(None); }
                                                 else if e.key() == Key::Escape { editing_idx.set(None); }
                                             },
-                                            onfocusout: move |_| { project_manager::set_nickname(&rb, &edit_value()); editing_idx.set(None); },
+                                            onfocusout: move |_| { project_manager::set_nickname(&rb, &edit_value()); nicknames.set(project_manager::load_nicknames()); editing_idx.set(None); },
                                         }
                                     } else {
                                         div { class: "project-name-row",
@@ -155,7 +155,7 @@ pub fn Sidebar(
             {
                 let mp = projects.get(mi);
                 let mr = mp.map(|p| p.root.to_string_lossy().to_string()).unwrap_or_default();
-                let mn = mp.map(|p| nicknames.get(&p.root.to_string_lossy().to_string()).cloned().unwrap_or_else(|| p.name.clone())).unwrap_or_default();
+                let mn = mp.map(|p| nicknames().get(&p.root.to_string_lossy().to_string()).cloned().unwrap_or_else(|| p.name.clone())).unwrap_or_default();
                 let is_cust = mp.map(|p| p.claude_dir_names.is_empty()).unwrap_or(false);
                 let r1 = mr.clone(); let r2 = mr.clone(); let r3 = mr.clone();
                 rsx! {
