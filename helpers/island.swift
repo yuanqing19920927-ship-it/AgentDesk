@@ -22,17 +22,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let screen = NSScreen.main else { return }
         let sf = screen.frame
 
-        let islandHeight: CGFloat = 22
+        let islandHeight: CGFloat = 32
         let islandWidth: CGFloat = 280
 
-        // Position: centered in the system menu bar
-        let menuBarBottom = screen.visibleFrame.maxY  // top of usable area = bottom of menu bar
-        let menuBarTop = sf.maxY                       // top of screen = top of menu bar
-        let menuBarHeight = menuBarTop - menuBarBottom
-
+        // Dynamic Island hangs down from the very top of the screen
+        // Like iPhone: the black pill is anchored to the top edge
         let x = sf.midX - islandWidth / 2
-        // Vertically center in menu bar
-        let y = menuBarBottom + (menuBarHeight - islandHeight) / 2
+        let y = sf.maxY - islandHeight  // flush with the top edge of the screen
 
         let frame = NSRect(x: x, y: y, width: islandWidth, height: islandHeight)
 
@@ -134,10 +130,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         <!DOCTYPE html><html><head><meta charset="utf-8"><style>
         *{margin:0;padding:0;box-sizing:border-box}
         html,body{background:transparent;overflow:hidden;height:100%}
-        body{display:flex;align-items:center;justify-content:center;
+        body{display:flex;align-items:flex-start;justify-content:center;
              font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased}
-        .is{background:#000;border-radius:11px;padding:0 10px;height:20px;
-            display:inline-flex;align-items:center;gap:4px;color:#fff;font-size:9px}
+        .is{background:#000;border-radius:0 0 16px 16px;padding:0 14px;height:30px;
+            display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:11px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.3)}
         .d{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:1px}
         .bd{background:#ff9500;animation:p 1.5s ease-in-out infinite}
         .id{background:#34c759}
@@ -156,15 +153,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         webView.loadHTMLString(html, baseURL: nil)
 
-        // Resize to fit content, reposition centered in menu bar
+        // Resize and reposition — always flush with top edge of screen
         guard let screen = NSScreen.main else { return }
         let sf = screen.frame
-        let menuBarBottom = screen.visibleFrame.maxY
-        let menuBarH = sf.maxY - menuBarBottom
-        let w: CGFloat = total == 0 ? 160 : min(CGFloat(130 + total * 80), 480)
-        let h: CGFloat = 22
+        let w: CGFloat = total == 0 ? 180 : min(CGFloat(160 + total * 90), 520)
+        let h: CGFloat = 32
         let x = sf.midX - w / 2
-        let y = menuBarBottom + (menuBarH - h) / 2
+        let y = sf.maxY - h  // anchored to top edge
         panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true, animate: true)
     }
 
