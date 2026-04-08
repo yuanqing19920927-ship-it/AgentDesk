@@ -269,4 +269,29 @@ body {
 .ctx-menu-item:hover { background: #007aff; color: #fff; }
 .ctx-menu-danger { color: #ff3b30; }
 .ctx-menu-danger:hover { background: #ff3b30; color: #fff; }
+
+/* ── Sidebar footer ── */
+.sidebar-footer {
+    border-top: 0.5px solid #d1d1d6; padding: 8px 10px;
+    flex-shrink: 0;
+}
+.sidebar-footer-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; color: #86868b; transition: background 0.1s;
+}
+.sidebar-footer-btn:hover { background: rgba(0,0,0,0.04); }
+
+/* ── Remove button in settings ── */
+.btn-remove {
+    background: transparent; border: none; cursor: pointer;
+    font-size: 12px; color: #ff3b30; font-weight: 500;
+    padding: 2px 0;
+}
+.btn-remove:hover { text-decoration: underline; }
+.btn-ghost {
+    background: #fff; color: #1d1d1f; border: 0.5px solid #d1d1d6;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
+}
+.btn-ghost:hover { background: #f2f2f7; }
 "#;

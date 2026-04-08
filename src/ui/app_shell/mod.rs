@@ -8,10 +8,12 @@ use crate::ui::styles::GLOBAL_CSS;
 mod sidebar;
 mod dashboard;
 mod new_agent_dialog;
+mod settings;
 
 use sidebar::Sidebar;
 use dashboard::Dashboard;
 use new_agent_dialog::NewAgentDialog;
+use settings::SettingsPanel;
 
 #[component]
 pub fn AppShell() -> Element {
@@ -21,6 +23,7 @@ pub fn AppShell() -> Element {
     let mut sessions = use_signal(Vec::<SessionSummary>::new);
     let session_load_gen = use_hook(|| Arc::new(AtomicU64::new(0)));
     let mut show_new_agent = use_signal(|| false);
+    let mut show_settings = use_signal(|| false);
 
     // Load projects (auto-discovered + custom)
     let load_all_projects = move || {
@@ -124,8 +127,9 @@ pub fn AppShell() -> Element {
         div { class: "app-container",
             Sidebar {
                 projects: projects_with_agents.clone(),
-                selected_idx: selected_idx(),
-                on_select: move |i: usize| selected_idx.set(Some(i)),
+                selected_idx: if show_settings() { None } else { selected_idx() },
+                on_select: move |i: usize| { show_settings.set(false); selected_idx.set(Some(i)); },
+                on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
                 on_add_project: move |_| {
                     // Open folder picker and add project
                     spawn(async move {
@@ -151,7 +155,12 @@ pub fn AppShell() -> Element {
                 },
             }
             div { class: "main-panel",
-                if let Some(project) = selected_project.clone() {
+                if show_settings() {
+                    SettingsPanel {
+                        on_close: move |_| show_settings.set(false),
+                        on_refresh: move |_| load_all_projects(),
+                    }
+                } else if let Some(project) = selected_project.clone() {
                     Dashboard {
                         project: project.clone(),
                         agents: project_agents.clone(),

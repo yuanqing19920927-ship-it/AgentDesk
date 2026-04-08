@@ -25,94 +25,91 @@ fn save_project_map(map: &HashMap<String, String>) {
     }
 }
 
+/// Scan all configured directories to discover projects
 pub fn scan_projects() -> Vec<Project> {
-    let claude_projects_dir = match dirs::home_dir() {
-        Some(home) => home.join(".claude").join("projects"),
-        None => return Vec::new(),
-    };
-    if !claude_projects_dir.exists() {
-        return Vec::new();
-    }
+    let cfg = crate::services::config::load_config();
 
     let mut project_map = load_project_map();
     let mut projects: HashMap<PathBuf, Project> = HashMap::new();
 
-    let entries = match fs::read_dir(&claude_projects_dir) {
-        Ok(entries) => entries,
-        Err(_) => return Vec::new(),
-    };
-
-    for entry in entries.flatten() {
-        let dir_name = entry.file_name().to_string_lossy().to_string();
-        let dir_path = entry.path();
-
-        if !dir_path.is_dir() {
+    for scan_dir_str in &cfg.scan_dirs {
+        let scan_dir = PathBuf::from(scan_dir_str);
+        if !scan_dir.exists() {
             continue;
         }
+        let Ok(entries) = fs::read_dir(&scan_dir) else { continue };
 
-        let jsonl_files: Vec<PathBuf> = fs::read_dir(&dir_path)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
-            .map(|e| e.path())
-            .collect();
+        for entry in entries.flatten() {
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let dir_path = entry.path();
 
-        if jsonl_files.is_empty() {
-            continue;
-        }
+            if !dir_path.is_dir() {
+                continue;
+            }
 
-        // Check persistent binding first, then fall back to JSONL cwd extraction
-        let project_root = if let Some(bound) = project_map.get(&dir_name) {
-            let bound_path = PathBuf::from(bound);
-            if bound_path.exists() {
-                let current_cwd = extract_cwd_from_sessions(&jsonl_files);
-                if let Some(ref cwd) = current_cwd {
-                    let resolved = resolve_project_root(cwd);
-                    if resolved != bound_path {
-                        continue; // Drift detected
+            let jsonl_files: Vec<PathBuf> = fs::read_dir(&dir_path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
+                .map(|e| e.path())
+                .collect();
+
+            if jsonl_files.is_empty() {
+                continue;
+            }
+
+            let project_root = if let Some(bound) = project_map.get(&dir_name) {
+                let bound_path = PathBuf::from(bound);
+                if bound_path.exists() {
+                    let current_cwd = extract_cwd_from_sessions(&jsonl_files);
+                    if let Some(ref cwd) = current_cwd {
+                        let resolved = resolve_project_root(cwd);
+                        if resolved != bound_path {
+                            continue;
+                        }
                     }
+                    bound_path
+                } else {
+                    continue;
                 }
-                bound_path
             } else {
-                continue;
-            }
-        } else {
-            let cwd = match extract_cwd_from_sessions(&jsonl_files) {
-                Some(c) => c,
-                None => continue,
+                let cwd = match extract_cwd_from_sessions(&jsonl_files) {
+                    Some(c) => c,
+                    None => continue,
+                };
+                let root = resolve_project_root(&cwd);
+                if !root.exists() {
+                    continue;
+                }
+                project_map.insert(dir_name.clone(), root.to_string_lossy().to_string());
+                root
             };
-            let root = resolve_project_root(&cwd);
-            if !root.exists() {
-                continue;
-            }
-            project_map.insert(dir_name.clone(), root.to_string_lossy().to_string());
-            root
-        };
 
-        let last_active = get_last_modified(&jsonl_files);
+            let last_active = get_last_modified(&jsonl_files);
 
-        let project = projects.entry(project_root.clone()).or_insert_with(|| {
-            let name = project_root
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            Project {
-                root: project_root.clone(),
-                name,
-                claude_dir_names: Vec::new(),
-                agent_count: 0,
-                last_active: None,
-                session_count: 0,
+            let project = projects.entry(project_root.clone()).or_insert_with(|| {
+                let name = project_root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                Project {
+                    root: project_root.clone(),
+                    name,
+                    claude_dir_names: Vec::new(),
+                    agent_count: 0,
+                    last_active: None,
+                    session_count: 0,
+                }
+            });
+            if !project.claude_dir_names.contains(&dir_name) {
+                project.claude_dir_names.push(dir_name.clone());
             }
-        });
-        if !project.claude_dir_names.contains(&dir_name) {
-            project.claude_dir_names.push(dir_name.clone());
-        }
-        project.session_count += jsonl_files.len();
-        if let Some(ts) = last_active {
-            if project.last_active.is_none() || project.last_active.unwrap() < ts {
-                project.last_active = Some(ts);
+            project.session_count += jsonl_files.len();
+            if let Some(ts) = last_active {
+                if project.last_active.is_none() || project.last_active.unwrap() < ts {
+                    project.last_active = Some(ts);
+                }
             }
         }
     }

@@ -18,6 +18,7 @@ pub fn Sidebar(
     selected_idx: Option<usize>,
     on_select: EventHandler<usize>,
     on_add_project: EventHandler<()>,
+    on_settings: EventHandler<()>,
 ) -> Element {
     let mut nicknames = use_signal(|| project_manager::load_nicknames());
     let mut editing_idx = use_signal(|| None::<usize>);
@@ -146,6 +147,15 @@ pub fn Sidebar(
                         p { style: "font-size: 13px;", "未发现项目" }
                         p { style: "font-size: 11px; margin-top: 4px; color: #aeaeb2;", "使用 Claude Code 或点击 ＋ 添加" }
                     }
+                }
+            }
+
+            // ── Settings button at bottom ──
+            div { class: "sidebar-footer",
+                div {
+                    class: "sidebar-footer-btn",
+                    onclick: move |_| on_settings.call(()),
+                    "⚙️  设置"
                 }
             }
         }
