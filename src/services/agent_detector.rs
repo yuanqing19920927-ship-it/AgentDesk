@@ -30,6 +30,15 @@ fn extract_tty(parts: &[&str]) -> Option<String> {
     None
 }
 
+/// Extract CPU% from ps aux line (column 2)
+fn extract_cpu(parts: &[&str]) -> f32 {
+    if parts.len() > 2 {
+        parts[2].parse().unwrap_or(0.0)
+    } else {
+        0.0
+    }
+}
+
 fn parse_claude_code(line: &str) -> Option<Agent> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 11 {
@@ -53,10 +62,12 @@ fn parse_claude_code(line: &str) -> Option<Agent> {
 
     let cwd = get_process_cwd(pid);
     let tty = extract_tty(&parts);
+    let cpu = extract_cpu(&parts);
     Some(Agent {
         pid,
         agent_type: AgentType::ClaudeCode,
-        status: AgentStatus::Running,
+        status: AgentStatus::from_cpu(cpu),
+        cpu_percent: cpu,
         project_root: None,
         cwd,
         tty,
@@ -80,10 +91,12 @@ fn parse_codex(line: &str) -> Option<Agent> {
 
     let cwd = get_process_cwd(pid);
     let tty = extract_tty(&parts);
+    let cpu = extract_cpu(&parts);
     Some(Agent {
         pid,
         agent_type: AgentType::Codex,
-        status: AgentStatus::Running,
+        status: AgentStatus::from_cpu(cpu),
+        cpu_percent: cpu,
         project_root: None,
         cwd,
         tty,

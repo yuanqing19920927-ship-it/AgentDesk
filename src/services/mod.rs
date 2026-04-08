@@ -1,5 +1,6 @@
 pub mod agent_detector;
 pub mod config;
+pub mod notifier;
 pub mod project_manager;
 pub mod project_scanner;
 pub mod session_reader;

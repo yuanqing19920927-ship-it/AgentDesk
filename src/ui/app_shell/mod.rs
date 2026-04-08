@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::models::{Agent, Project, SessionSummary};
-use crate::services::{agent_detector, project_manager, project_scanner, session_reader};
+use crate::models::AgentStatus;
+use crate::services::{agent_detector, notifier, project_manager, project_scanner, session_reader};
 use crate::ui::styles::GLOBAL_CSS;
 
 mod sidebar;
@@ -55,13 +56,58 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Periodic agent refresh every 3 seconds
+    // Periodic agent refresh every 3 seconds + status change notifications
     use_hook(move || {
         spawn(async move {
+            // Track previous state for change detection
+            let mut prev_states: std::collections::HashMap<u32, AgentStatus> = std::collections::HashMap::new();
+            let mut prev_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 let detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
                     .await.unwrap_or_default();
+
+                let current_pids: std::collections::HashSet<u32> = detected.iter().map(|a| a.pid).collect();
+
+                // Check for status changes: Busy -> Idle = task likely completed
+                for agent in &detected {
+                    if let Some(prev) = prev_states.get(&agent.pid) {
+                        if *prev == AgentStatus::Busy && agent.status == AgentStatus::Idle {
+                            let label = agent.agent_type.label().to_string();
+                            let cwd_name = agent.cwd.as_ref()
+                                .and_then(|c| c.file_name())
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            notifier::send_notification(
+                                "AgentDesk",
+                                &format!("{} 任务完成 ({})", label, cwd_name),
+                            );
+                        }
+                    }
+                }
+
+                // Check for agents that disappeared (process exited)
+                for pid in &prev_pids {
+                    if !current_pids.contains(pid) {
+                        if let Some(prev_status) = prev_states.get(pid) {
+                            if *prev_status == AgentStatus::Busy {
+                                notifier::send_notification(
+                                    "AgentDesk",
+                                    &format!("Agent (PID {}) 已退出", pid),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Update tracking state
+                prev_states.clear();
+                for agent in &detected {
+                    prev_states.insert(agent.pid, agent.status.clone());
+                }
+                prev_pids = current_pids;
+
                 agents.set(detected);
             }
         });

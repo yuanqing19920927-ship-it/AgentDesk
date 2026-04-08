@@ -125,16 +125,25 @@ pub fn Dashboard(
                             let has_cwd = agent.cwd.is_some();
                             let label = agent.agent_type.label().to_string();
                             let pid = agent.pid;
+                            let cpu = agent.cpu_percent;
+                            let status_label = agent.status.label().to_string();
+                            let is_busy = agent.status == crate::models::AgentStatus::Busy;
+                            let dot_cls = if is_busy { "status-dot busy" } else { "status-dot idle" };
                             let tty = agent.tty.clone();
                             let has_tty = tty.is_some();
                             rsx! {
                                 div { class: "grouped-row",
                                     div { style: "display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;",
-                                        div { class: "status-dot" }
+                                        div { class: "{dot_cls}" }
                                         div { class: "row-content",
-                                            div { class: "row-label-bold", "{label}" }
+                                            div { style: "display: flex; align-items: center; gap: 6px;",
+                                                span { class: "row-label-bold", "{label}" }
+                                                span { class: if is_busy { "status-tag busy" } else { "status-tag idle" },
+                                                    "{status_label}"
+                                                }
+                                            }
                                             div { class: "row-sub",
-                                                "PID {pid}"
+                                                "PID {pid} · CPU {cpu:.1}%"
                                                 if has_cwd { " · {cwd_str}" }
                                             }
                                         }

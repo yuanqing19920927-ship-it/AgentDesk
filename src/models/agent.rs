@@ -49,8 +49,23 @@ impl PermissionMode {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgentStatus {
-    Running,
+    /// CPU > 2%, actively processing
+    Busy,
+    /// CPU <= 2%, waiting for input or idle
     Idle,
+}
+
+impl AgentStatus {
+    pub fn label(&self) -> &str {
+        match self {
+            AgentStatus::Busy => "工作中",
+            AgentStatus::Idle => "空闲",
+        }
+    }
+
+    pub fn from_cpu(cpu: f32) -> Self {
+        if cpu > 2.0 { AgentStatus::Busy } else { AgentStatus::Idle }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,8 +73,8 @@ pub struct Agent {
     pub pid: u32,
     pub agent_type: AgentType,
     pub status: AgentStatus,
+    pub cpu_percent: f32,
     pub project_root: Option<PathBuf>,
     pub cwd: Option<PathBuf>,
-    /// Terminal tty name, e.g. "s003"
     pub tty: Option<String>,
 }

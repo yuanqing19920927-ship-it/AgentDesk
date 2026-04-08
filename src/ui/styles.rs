@@ -141,9 +141,20 @@ body {
 /* Status indicators */
 .status-dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: #34c759; display: inline-block; margin-right: 6px; flex-shrink: 0;
+    display: inline-block; margin-right: 6px; flex-shrink: 0;
 }
-.status-dot.blue { background: #007aff; }
+.status-dot.busy { background: #ff9500; animation: pulse 1.5s ease-in-out infinite; }
+.status-dot.idle { background: #34c759; }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.status-tag {
+    font-size: 10px; font-weight: 600; padding: 0 6px;
+    border-radius: 4px; line-height: 16px;
+}
+.status-tag.busy { background: #fff3e0; color: #ff9500; }
+.status-tag.idle { background: #e8f5e9; color: #34c759; }
 
 /* ── Stats row ── */
 .stats-grid {
