@@ -22,16 +22,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let screen = NSScreen.main else { return }
         let sf = screen.frame
 
-        // Notch dimensions: ~180pt wide, sits in menu bar area
-        // We position our island to overlap the notch, expanding outward
-        let islandHeight: CGFloat = 32
+        let islandHeight: CGFloat = 26
         let islandWidth: CGFloat = 280
 
-        // Center horizontally, pin to very top of screen (inside menu bar / notch)
+        // Check if screen has a notch (built-in display with safeAreaInsets.top > 0)
+        let safeTop = screen.safeAreaInsets.top
+        let menuBarHeight = sf.maxY - screen.visibleFrame.maxY
+
+        // Position: centered horizontally, vertically inside the menu bar
         let x = sf.midX - islandWidth / 2
-        // Place at the top of the screen, overlapping the menu bar area
-        // The notch bottom is approximately screen.top - 33pt
-        let y = sf.maxY - islandHeight - 5
+        let y: CGFloat
+        if safeTop > 0 {
+            // Has notch: place just below notch, within menu bar
+            y = sf.maxY - safeTop + 2
+        } else {
+            // No notch (external display): center within menu bar
+            y = sf.maxY - menuBarHeight + (menuBarHeight - islandHeight) / 2
+        }
 
         let frame = NSRect(x: x, y: y, width: islandWidth, height: islandHeight)
 
@@ -135,8 +142,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         html,body{background:transparent;overflow:hidden;height:100%}
         body{display:flex;align-items:center;justify-content:center;
              font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased}
-        .is{background:#000;border-radius:17px;padding:0 14px;height:30px;
-            display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:11px}
+        .is{background:#000;border-radius:13px;padding:0 12px;height:24px;
+            display:inline-flex;align-items:center;gap:5px;color:#fff;font-size:10px}
         .d{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:1px}
         .bd{background:#ff9500;animation:p 1.5s ease-in-out infinite}
         .id{background:#34c759}
@@ -155,13 +162,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         webView.loadHTMLString(html, baseURL: nil)
 
-        // Resize to fit content, reposition centered at notch
+        // Resize to fit content, reposition centered in menu bar
         guard let screen = NSScreen.main else { return }
         let sf = screen.frame
+        let safeTop = screen.safeAreaInsets.top
+        let menuBarH = sf.maxY - screen.visibleFrame.maxY
         let w: CGFloat = total == 0 ? 180 : min(CGFloat(140 + total * 80), 500)
-        let h: CGFloat = 32
+        let h: CGFloat = 26
         let x = sf.midX - w / 2
-        let y = sf.maxY - h - 5
+        let y: CGFloat
+        if safeTop > 0 {
+            y = sf.maxY - safeTop + 2
+        } else {
+            y = sf.maxY - menuBarH + (menuBarH - h) / 2
+        }
         panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true, animate: true)
     }
 
