@@ -156,6 +156,12 @@ body {
 .status-tag.busy { background: #fff3e0; color: #ff9500; }
 .status-tag.idle { background: #e8f5e9; color: #34c759; }
 
+.subagent-row { background: #f9f9fb; }
+.sub-badge {
+    font-size: 9px; color: #86868b; background: #ebebed;
+    padding: 0 5px; border-radius: 3px; line-height: 15px;
+}
+
 /* ── Stats row ── */
 .stats-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

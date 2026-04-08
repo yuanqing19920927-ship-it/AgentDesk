@@ -131,15 +131,26 @@ pub fn Dashboard(
                             let dot_cls = if is_busy { "status-dot busy" } else { "status-dot idle" };
                             let tty = agent.tty.clone();
                             let has_tty = tty.is_some();
+                            let is_sub = agent.is_subagent;
+                            let parent_pid = agent.parent_pid.unwrap_or(0);
+                            let row_cls = if is_sub { "grouped-row subagent-row" } else { "grouped-row" };
                             rsx! {
-                                div { class: "grouped-row",
+                                div { class: "{row_cls}",
                                     div { style: "display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;",
+                                        if is_sub {
+                                            div { style: "width: 16px; flex-shrink: 0;" } // indent
+                                        }
                                         div { class: "{dot_cls}" }
                                         div { class: "row-content",
                                             div { style: "display: flex; align-items: center; gap: 6px;",
-                                                span { class: "row-label-bold", "{label}" }
+                                                span { class: if is_sub { "row-label" } else { "row-label-bold" },
+                                                    if is_sub { "↳ 子 Agent" } else { "{label}" }
+                                                }
                                                 span { class: if is_busy { "status-tag busy" } else { "status-tag idle" },
                                                     "{status_label}"
+                                                }
+                                                if is_sub {
+                                                    span { class: "sub-badge", "子进程 ← PID {parent_pid}" }
                                                 }
                                             }
                                             div { class: "row-sub",

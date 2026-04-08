@@ -77,4 +77,8 @@ pub struct Agent {
     pub project_root: Option<PathBuf>,
     pub cwd: Option<PathBuf>,
     pub tty: Option<String>,
+    /// True if this agent was spawned by another agent (subagent)
+    pub is_subagent: bool,
+    /// Parent agent PID if this is a subagent
+    pub parent_pid: Option<u32>,
 }
