@@ -186,6 +186,13 @@ body {
     font-size: 13px; background: #fff; color: #1d1d1f; outline: none;
 }
 .group-input:focus { border-color: #007aff; }
+.group-actions { display: flex; gap: 4px; align-items: center; }
+.btn-reorder {
+    background: #f2f2f7; border: 0.5px solid #d1d1d6; border-radius: 4px;
+    width: 24px; height: 24px; cursor: pointer; font-size: 12px;
+    color: #007aff; display: flex; align-items: center; justify-content: center;
+}
+.btn-reorder:hover { background: #e5e5ea; }
 .sub-badge {
     font-size: 9px; color: #86868b; background: #ebebed;
     padding: 0 5px; border-radius: 3px; line-height: 15px;

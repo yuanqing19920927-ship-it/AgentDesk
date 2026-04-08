@@ -63,7 +63,6 @@ pub fn Sidebar(
     rsx! {
         div { class: "sidebar",
             onclick: move |_| ctx_menu.set(None),
-            div { class: "sidebar-title", "AgentDesk" }
 
             // Home pinned
             if let Some(hi) = home_idx {
