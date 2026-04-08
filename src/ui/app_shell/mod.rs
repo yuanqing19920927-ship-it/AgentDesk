@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::models::{Agent, Project, SessionSummary};
-use crate::services::{agent_detector, project_scanner, session_reader};
+use crate::services::{agent_detector, project_manager, project_scanner, session_reader};
 use crate::ui::styles::GLOBAL_CSS;
 
 mod sidebar;
@@ -22,14 +22,32 @@ pub fn AppShell() -> Element {
     let session_load_gen = use_hook(|| Arc::new(AtomicU64::new(0)));
     let mut show_new_agent = use_signal(|| false);
 
+    // Load projects (auto-discovered + custom)
+    let load_all_projects = move || {
+        spawn(async move {
+            let (scanned, custom) = tokio::task::spawn_blocking(|| {
+                let scanned = project_scanner::scan_projects();
+                let custom = project_manager::custom_projects_as_models();
+                (scanned, custom)
+            }).await.unwrap_or_default();
+
+            // Merge: auto-discovered first, then custom (skip duplicates)
+            let mut merged = scanned;
+            for cp in custom {
+                if !merged.iter().any(|p| p.root == cp.root) {
+                    merged.push(cp);
+                }
+            }
+            projects.set(merged);
+        });
+    };
+
     // Initial load
     use_hook(move || {
+        load_all_projects();
         spawn(async move {
-            let scanned = tokio::task::spawn_blocking(project_scanner::scan_projects)
-                .await.unwrap_or_default();
             let detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
                 .await.unwrap_or_default();
-            projects.set(scanned);
             agents.set(detected);
         });
     });
@@ -108,6 +126,29 @@ pub fn AppShell() -> Element {
                 projects: projects_with_agents.clone(),
                 selected_idx: selected_idx(),
                 on_select: move |i: usize| selected_idx.set(Some(i)),
+                on_add_project: move |_| {
+                    // Open folder picker and add project
+                    spawn(async move {
+                        let result = tokio::task::spawn_blocking(|| {
+                            if let Some(path) = project_manager::pick_folder() {
+                                project_manager::add_custom_project(&path)
+                            } else {
+                                Err("已取消".to_string())
+                            }
+                        }).await;
+
+                        match result {
+                            Ok(Ok(())) => {
+                                // Reload projects
+                                load_all_projects();
+                            }
+                            Ok(Err(_e)) => {
+                                // Could show error, for now just ignore (duplicate or cancelled)
+                            }
+                            Err(_) => {}
+                        }
+                    });
+                },
             }
             div { class: "main-panel",
                 if let Some(project) = selected_project.clone() {
@@ -120,7 +161,7 @@ pub fn AppShell() -> Element {
                 } else {
                     div { class: "empty-state",
                         h2 { "欢迎使用 AgentDesk" }
-                        p { "从左侧选择一个项目开始" }
+                        p { "从左侧选择一个项目，或点击 ＋ 添加新项目" }
                     }
                 }
             }

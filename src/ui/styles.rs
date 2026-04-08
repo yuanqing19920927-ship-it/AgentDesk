@@ -39,8 +39,20 @@ body {
 .project-item.selected .project-meta,
 .project-item.selected .project-meta span { color: rgba(255,255,255,0.7) !important; }
 .project-item.selected .agent-badge { background: rgba(255,255,255,0.22); color: #fff; }
+.project-item.selected .custom-badge { background: rgba(255,255,255,0.22); color: #fff; }
 
-.project-name { font-weight: 500; font-size: 13px; color: #1d1d1f; line-height: 1.3; }
+.project-name { font-weight: 500; font-size: 13px; color: #1d1d1f; line-height: 1.3; display: flex; align-items: center; gap: 6px; }
+.custom-badge {
+    font-size: 9px; font-weight: 600; color: #ff9500;
+    background: #fff3e0; padding: 0 5px; border-radius: 4px; line-height: 16px;
+}
+.sidebar-add-btn {
+    background: none; border: 1px solid #d1d1d6; border-radius: 4px;
+    width: 22px; height: 22px; cursor: pointer; font-size: 14px;
+    color: #86868b; display: flex; align-items: center; justify-content: center;
+    transition: all 0.1s;
+}
+.sidebar-add-btn:hover { background: #e5e5ea; color: #1d1d1f; }
 .project-path {
     font-size: 11px; color: #86868b; margin-top: 1px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
