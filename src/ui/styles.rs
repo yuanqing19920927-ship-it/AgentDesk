@@ -1,21 +1,12 @@
 pub const GLOBAL_CSS: &str = r#"
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
     background-color: #f5f5f7; color: #1d1d1f; font-size: 13px;
     -webkit-font-smoothing: antialiased; line-height: 1.45;
 }
-
 .app-container { display: flex; height: 100vh; width: 100vw; }
-
-/* ── Titlebar area — extends into transparent titlebar ── */
-.titlebar-island {
-    height: 52px; /* macOS titlebar height */
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    -webkit-app-region: drag; /* make titlebar draggable */
-}
 
 /* ══════════════════════════════
    SIDEBAR — macOS Settings style
@@ -26,7 +17,7 @@ body {
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-right: 0.5px solid #c7c7cc;
     display: flex; flex-direction: column;
-    padding: 52px 0 0; /* leave space for traffic lights in titlebar */
+    padding: 10px 0 0;
     user-select: none;
 }
 .sidebar-section-label {
@@ -115,11 +106,7 @@ body {
 /* ══════════════════════════════
    MAIN PANEL — right side
    ══════════════════════════════ */
-.main-panel {
-    flex: 1; display: flex; flex-direction: column;
-    background: #fff; overflow: hidden;
-}
-.main-panel-content { flex: 1; overflow-y: auto; padding: 16px 36px 28px; }
+.main-panel { flex: 1; overflow-y: auto; padding: 28px 36px; background: #fff; }
 .page-header { margin-bottom: 28px; }
 .page-header-info h1 { font-size: 26px; font-weight: 700; color: #1d1d1f; margin-bottom: 6px; }
 .page-header-info .path { font-size: 11px; color: #86868b; word-break: break-all; }
