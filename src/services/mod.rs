@@ -1,5 +1,6 @@
 pub mod agent_detector;
 pub mod config;
+pub mod island;
 pub mod notifier;
 pub mod project_manager;
 pub mod project_scanner;
