@@ -7,6 +7,9 @@ mod ui;
 use ui::app_shell::AppShell;
 
 fn main() {
+    // Kill any leftover island overlay from previous run
+    let _ = std::process::Command::new("pkill").args(["-f", "island-overlay"]).output();
+
     let cfg = dioxus::desktop::Config::new()
         .with_window(
             dioxus::desktop::WindowBuilder::new()
@@ -14,5 +17,20 @@ fn main() {
                 .with_inner_size(dioxus::desktop::LogicalSize::new(1100.0, 720.0))
                 .with_always_on_top(false),
         );
+
+    // Ensure island overlay is killed when app exits
+    let _cleanup = IslandCleanup;
+
     LaunchBuilder::desktop().with_cfg(cfg).launch(AppShell);
+}
+
+/// Drop guard to kill island overlay on app exit
+struct IslandCleanup;
+impl Drop for IslandCleanup {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("pkill").args(["-f", "island-overlay"]).output();
+        let _ = std::fs::remove_file(
+            dirs::home_dir().unwrap_or_default().join(".agentdesk").join("island_state.json")
+        );
+    }
 }
