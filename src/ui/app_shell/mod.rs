@@ -119,8 +119,8 @@ pub fn AppShell() -> Element {
                     }
                 } else {
                     div { class: "empty-state",
-                        h2 { "Welcome to AgentDesk" }
-                        p { "Select a project from the sidebar to get started." }
+                        h2 { "欢迎使用 AgentDesk" }
+                        p { "从左侧选择一个项目开始" }
                     }
                 }
             }

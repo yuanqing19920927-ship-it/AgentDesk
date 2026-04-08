@@ -40,9 +40,9 @@ impl PermissionMode {
 
     pub fn label(&self) -> &str {
         match self {
-            PermissionMode::Default => "Default",
-            PermissionMode::DangerouslySkipPermissions => "Skip Permissions",
-            PermissionMode::Plan => "Plan Mode",
+            PermissionMode::Default => "默认",
+            PermissionMode::DangerouslySkipPermissions => "跳过权限检查",
+            PermissionMode::Plan => "规划模式",
         }
     }
 }

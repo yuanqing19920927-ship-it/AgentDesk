@@ -33,10 +33,10 @@ pub fn NewAgentDialog(
             onclick: move |_| on_close.call(()),
             div { class: "dialog",
                 onclick: move |e| e.stop_propagation(),
-                h2 { "New Agent" }
+                h2 { "新建 Agent" }
 
                 div { class: "form-group",
-                    label { "Project" }
+                    label { "项目" }
                     select {
                         class: "form-select",
                         onchange: move |e| {
@@ -55,7 +55,7 @@ pub fn NewAgentDialog(
                 }
 
                 div { class: "form-group",
-                    label { "Agent Type" }
+                    label { "Agent 类型" }
                     select {
                         class: "form-select",
                         onchange: move |e| {
@@ -70,7 +70,7 @@ pub fn NewAgentDialog(
                 }
 
                 div { class: "form-group",
-                    label { "Permission Mode" }
+                    label { "权限模式" }
                     select {
                         class: "form-select",
                         onchange: move |e| {
@@ -87,25 +87,25 @@ pub fn NewAgentDialog(
 
                 if permission_idx() == 1 {
                     div { class: "warning-box",
-                        p { class: "warning-title", "Warning: Skip Permissions disables all safety checks." }
-                        p { class: "warning-text", "The agent can execute any command without confirmation." }
+                        p { class: "warning-title", "警告：跳过权限检查将禁用所有安全防护" }
+                        p { class: "warning-text", "Agent 将可以在不经确认的情况下执行任意命令。" }
                         label { style: "display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer;",
                             input {
                                 r#type: "checkbox",
                                 checked: confirm_dangerous(),
                                 onchange: move |e| confirm_dangerous.set(e.checked()),
                             }
-                            "I understand the risks"
+                            "我已了解风险"
                         }
                     }
                 }
 
                 if let Some(ref err) = error_msg() {
-                    div { style: "color: #f38ba8; font-size: 13px; margin-bottom: 12px;", "{err}" }
+                    div { style: "color: #ff3b30; font-size: 12px; margin-bottom: 12px;", "{err}" }
                 }
 
                 div { class: "dialog-actions",
-                    button { class: "btn-ghost", onclick: move |_| on_close.call(()), "Cancel" }
+                    button { class: "btn-ghost", onclick: move |_| on_close.call(()), "取消" }
                     button {
                         class: "btn btn-primary",
                         disabled: launching() || selected_project_idx().is_none() || (permission_idx() == 1 && !confirm_dangerous()),
@@ -127,12 +127,12 @@ pub fn NewAgentDialog(
                                     match result {
                                         Ok(Ok(())) => on_close.call(()),
                                         Ok(Err(e)) => { error_msg.set(Some(e)); launching.set(false); }
-                                        Err(e) => { error_msg.set(Some(format!("Task error: {}", e))); launching.set(false); }
+                                        Err(e) => { error_msg.set(Some(format!("任务错误: {}", e))); launching.set(false); }
                                     }
                                 });
                             }
                         },
-                        if launching() { "Launching..." } else { "Launch Agent" }
+                        if launching() { "启动中..." } else { "启动 Agent" }
                     }
                 }
             }
