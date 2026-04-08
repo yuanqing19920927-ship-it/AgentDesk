@@ -85,6 +85,27 @@ body {
 }
 .sidebar-add-btn:hover { background: #e5e5ea; color: #1d1d1f; }
 
+/* ── Context menu ── */
+.ctx-backdrop {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 199;
+}
+.ctx-menu {
+    position: fixed; z-index: 200;
+    background: #fff; border: 1px solid #d1d1d6;
+    border-radius: 8px; padding: 4px 0;
+    min-width: 160px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06);
+}
+.ctx-menu-item {
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: background 0.08s;
+}
+.ctx-menu-item:hover { background: #007aff; color: #fff; border-radius: 4px; margin: 0 4px; padding: 6px 10px; }
+.ctx-menu-danger { color: #ff3b30; }
+.ctx-menu-danger:hover { background: #ff3b30; color: #fff; }
+
 .btn-focus-terminal {
     background: #f2f2f7; border: 1px solid #d1d1d6; border-radius: 6px;
     padding: 4px 10px; cursor: pointer; font-size: 11px; font-weight: 500;

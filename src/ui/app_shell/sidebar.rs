@@ -12,8 +12,9 @@ pub fn Sidebar(
     let nicknames = use_hook(|| project_manager::load_nicknames());
     let mut editing_idx = use_signal(|| None::<usize>);
     let mut edit_value = use_signal(String::new);
+    // Context menu state: (project_index, x, y)
+    let mut ctx_menu = use_signal(|| None::<(usize, f64, f64)>);
 
-    // Separate home project from the rest
     let home_dir = dirs::home_dir().unwrap_or_default();
     let home_str = home_dir.to_string_lossy().to_string();
 
@@ -24,6 +25,9 @@ pub fn Sidebar(
 
     rsx! {
         div { class: "sidebar",
+            // Dismiss context menu on click anywhere in sidebar
+            onclick: move |_| ctx_menu.set(None),
+
             div { class: "sidebar-title", "AgentDesk" }
 
             // ── Home project (pinned) ──
@@ -36,13 +40,47 @@ pub fn Sidebar(
                     let cls = if is_selected { "home-item selected" } else { "home-item" };
                     let agent_count = home_proj.agent_count;
                     let session_count = home_proj.session_count;
+                    let home_root = home_proj.root.to_string_lossy().to_string();
                     rsx! {
                         div {
                             class: "{cls}",
                             onclick: move |_| on_select.call(hi),
+                            oncontextmenu: move |e| {
+                                e.prevent_default();
+                                let coords = e.page_coordinates();
+                                ctx_menu.set(Some((hi, coords.x, coords.y)));
+                            },
                             div { class: "home-icon", "🏠" }
                             div { class: "home-info",
-                                div { class: "home-name", "{display}" }
+                                if editing_idx() == Some(hi) {
+                                    input {
+                                        class: "nickname-input",
+                                        value: "{edit_value}",
+                                        autofocus: true,
+                                        oninput: move |e| edit_value.set(e.value()),
+                                        onclick: move |e| e.stop_propagation(),
+                                        onkeydown: {
+                                            let path = home_root.clone();
+                                            move |e: KeyboardEvent| {
+                                                if e.key() == Key::Enter {
+                                                    project_manager::set_nickname(&path, &edit_value());
+                                                    editing_idx.set(None);
+                                                } else if e.key() == Key::Escape {
+                                                    editing_idx.set(None);
+                                                }
+                                            }
+                                        },
+                                        onfocusout: {
+                                            let path = home_root.clone();
+                                            move |_| {
+                                                project_manager::set_nickname(&path, &edit_value());
+                                                editing_idx.set(None);
+                                            }
+                                        },
+                                    }
+                                } else {
+                                    div { class: "home-name", "{display}" }
+                                }
                                 div { class: "project-meta",
                                     if agent_count > 0 {
                                         span { class: "agent-badge", "{agent_count}" }
@@ -92,30 +130,28 @@ pub fn Sidebar(
                                         on_select.call(idx);
                                     }
                                 },
-                                ondoubleclick: move |_| {
-                                    editing_idx.set(Some(idx));
-                                    edit_value.set(display_name.clone());
+                                oncontextmenu: move |e| {
+                                    e.prevent_default();
+                                    let coords = e.page_coordinates();
+                                    ctx_menu.set(Some((idx, coords.x, coords.y)));
                                 },
                                 if is_editing {
                                     input {
                                         class: "nickname-input",
                                         value: "{edit_value}",
                                         autofocus: true,
+                                        onclick: move |e| e.stop_propagation(),
                                         oninput: move |e| edit_value.set(e.value()),
                                         onkeydown: move |e| {
                                             if e.key() == Key::Enter {
-                                                let val = edit_value().clone();
-                                                let path = root_for_key.clone();
-                                                project_manager::set_nickname(&path, &val);
+                                                project_manager::set_nickname(&root_for_key, &edit_value());
                                                 editing_idx.set(None);
                                             } else if e.key() == Key::Escape {
                                                 editing_idx.set(None);
                                             }
                                         },
                                         onfocusout: move |_| {
-                                            let val = edit_value().clone();
-                                            let path = root_for_blur.clone();
-                                            project_manager::set_nickname(&path, &val);
+                                            project_manager::set_nickname(&root_for_blur, &edit_value());
                                             editing_idx.set(None);
                                         },
                                     }
@@ -147,6 +183,78 @@ pub fn Sidebar(
                         p { style: "font-size: 13px;", "未发现项目" }
                         p { style: "font-size: 11px; margin-top: 6px;",
                             "使用 Claude Code 或点击 ＋ 添加"
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Context menu (floating) ──
+        if let Some((menu_idx, mx, my)) = ctx_menu() {
+            {
+                let menu_project = projects.get(menu_idx);
+                let menu_root = menu_project.map(|p| p.root.to_string_lossy().to_string()).unwrap_or_default();
+                let menu_name = menu_project.map(|p| {
+                    nicknames.get(&p.root.to_string_lossy().to_string())
+                        .cloned()
+                        .unwrap_or_else(|| p.name.clone())
+                }).unwrap_or_default();
+                let is_custom = menu_project.map(|p| p.claude_dir_names.is_empty()).unwrap_or(false);
+                let root_for_rename = menu_root.clone();
+                let root_for_reveal = menu_root.clone();
+                let root_for_remove = menu_root.clone();
+
+                rsx! {
+                    // Backdrop to dismiss
+                    div {
+                        class: "ctx-backdrop",
+                        onclick: move |_| ctx_menu.set(None),
+                    }
+                    div {
+                        class: "ctx-menu",
+                        style: "left: {mx}px; top: {my}px;",
+                        // Rename
+                        div {
+                            class: "ctx-menu-item",
+                            onclick: move |_| {
+                                ctx_menu.set(None);
+                                editing_idx.set(Some(menu_idx));
+                                edit_value.set(menu_name.clone());
+                            },
+                            "✏️ 修改备注名"
+                        }
+                        // Reveal in Finder
+                        div {
+                            class: "ctx-menu-item",
+                            onclick: move |_| {
+                                ctx_menu.set(None);
+                                let p = root_for_reveal.clone();
+                                let _ = std::process::Command::new("open").arg(&p).spawn();
+                            },
+                            "📂 在 Finder 中打开"
+                        }
+                        // Copy path
+                        div {
+                            class: "ctx-menu-item",
+                            onclick: move |_| {
+                                ctx_menu.set(None);
+                                let p = root_for_rename.clone();
+                                let _ = std::process::Command::new("bash")
+                                    .args(["-c", &format!("echo -n '{}' | pbcopy", p)])
+                                    .spawn();
+                            },
+                            "📋 复制路径"
+                        }
+                        // Remove (only for custom projects)
+                        if is_custom {
+                            div {
+                                class: "ctx-menu-item ctx-menu-danger",
+                                onclick: move |_| {
+                                    ctx_menu.set(None);
+                                    project_manager::remove_custom_project(&root_for_remove);
+                                },
+                                "🗑 移除项目"
+                            }
                         }
                     }
                 }
