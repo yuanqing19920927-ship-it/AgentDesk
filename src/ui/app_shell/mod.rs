@@ -113,13 +113,25 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Match agents to projects
+    // Match agents to projects using best (longest) prefix match
+    // Each agent is assigned to the project with the longest matching root path,
+    // preventing parent directories (e.g. ~) from claiming agents in subdirectory projects.
     let projects_with_agents = {
         let mut ps = projects().clone();
         let ag = agents();
+        let roots: Vec<std::path::PathBuf> = ps.iter().map(|p| p.root.clone()).collect();
         for project in &mut ps {
             project.agent_count = ag.iter()
-                .filter(|a| a.cwd.as_ref().is_some_and(|cwd| cwd.starts_with(&project.root)))
+                .filter(|a| {
+                    let Some(cwd) = a.cwd.as_ref() else { return false };
+                    if !cwd.starts_with(&project.root) { return false; }
+                    // Check no other project root is a longer (more specific) match
+                    !roots.iter().any(|other| {
+                        other != &project.root
+                            && cwd.starts_with(other)
+                            && other.as_os_str().len() > project.root.as_os_str().len()
+                    })
+                })
                 .count();
         }
         ps
@@ -161,8 +173,18 @@ pub fn AppShell() -> Element {
     let selected_project = selected_idx().and_then(|i| projects_with_agents.get(i).cloned());
 
     let project_agents: Vec<Agent> = if let Some(ref proj) = selected_project {
+        let all_roots: Vec<std::path::PathBuf> = projects_with_agents.iter().map(|p| p.root.clone()).collect();
+        let proj_root = proj.root.clone();
         agents().iter()
-            .filter(|a| a.cwd.as_ref().is_some_and(|cwd| cwd.starts_with(&proj.root)))
+            .filter(|a| {
+                let Some(cwd) = a.cwd.as_ref() else { return false };
+                if !cwd.starts_with(&proj_root) { return false; }
+                !all_roots.iter().any(|other| {
+                    other != &proj_root
+                        && cwd.starts_with(other)
+                        && other.as_os_str().len() > proj_root.as_os_str().len()
+                })
+            })
             .cloned().collect()
     } else {
         Vec::new()
