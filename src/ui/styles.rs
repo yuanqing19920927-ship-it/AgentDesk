@@ -53,6 +53,14 @@ body {
     transition: all 0.1s;
 }
 .sidebar-add-btn:hover { background: #e5e5ea; color: #1d1d1f; }
+
+.btn-focus-terminal {
+    background: #f2f2f7; border: 1px solid #d1d1d6; border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-size: 11px; font-weight: 500;
+    color: #007aff; white-space: nowrap; transition: all 0.1s;
+    flex-shrink: 0;
+}
+.btn-focus-terminal:hover { background: #e5e5ea; }
 .project-path {
     font-size: 11px; color: #86868b; margin-top: 1px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

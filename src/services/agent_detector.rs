@@ -19,6 +19,17 @@ pub fn detect_agents() -> Vec<Agent> {
     agents
 }
 
+/// Extract tty from ps aux line (column 6, e.g. "s003", "??" means no tty)
+fn extract_tty(parts: &[&str]) -> Option<String> {
+    if parts.len() > 6 {
+        let tty = parts[6];
+        if tty != "??" {
+            return Some(tty.to_string());
+        }
+    }
+    None
+}
+
 fn parse_claude_code(line: &str) -> Option<Agent> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 11 {
@@ -41,12 +52,14 @@ fn parse_claude_code(line: &str) -> Option<Agent> {
     }
 
     let cwd = get_process_cwd(pid);
+    let tty = extract_tty(&parts);
     Some(Agent {
         pid,
         agent_type: AgentType::ClaudeCode,
         status: AgentStatus::Running,
         project_root: None,
         cwd,
+        tty,
     })
 }
 
@@ -66,12 +79,14 @@ fn parse_codex(line: &str) -> Option<Agent> {
     }
 
     let cwd = get_process_cwd(pid);
+    let tty = extract_tty(&parts);
     Some(Agent {
         pid,
         agent_type: AgentType::Codex,
         status: AgentStatus::Running,
         project_root: None,
         cwd,
+        tty,
     })
 }
 
@@ -89,4 +104,49 @@ fn get_process_cwd(pid: u32) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Activate the iTerm2/Terminal window containing the given tty
+pub fn focus_agent_terminal(tty: &str) -> Result<(), String> {
+    let tty_device = format!("/dev/tty{}", tty);
+
+    if std::path::Path::new("/Applications/iTerm.app").exists() {
+        let script = format!(
+            r#"tell application "iTerm2"
+    activate
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                if tty of s is "{}" then
+                    select t
+                    tell w to select
+                    return "found"
+                end if
+            end repeat
+        end repeat
+    end repeat
+    return "not found"
+end tell"#,
+            tty_device
+        );
+
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("osascript 执行失败: {}", e))?;
+
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if result.contains("not found") {
+            return Err("未找到对应的终端窗口".to_string());
+        }
+    } else {
+        // Fallback: just activate Terminal.app
+        let _ = Command::new("osascript")
+            .arg("-e")
+            .arg(r#"tell application "Terminal" to activate"#)
+            .output();
+    }
+
+    Ok(())
 }

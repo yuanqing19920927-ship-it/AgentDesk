@@ -60,4 +60,6 @@ pub struct Agent {
     pub status: AgentStatus,
     pub project_root: Option<PathBuf>,
     pub cwd: Option<PathBuf>,
+    /// Terminal tty name, e.g. "s003"
+    pub tty: Option<String>,
 }

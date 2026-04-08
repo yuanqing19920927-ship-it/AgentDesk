@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use chrono::Local;
 use crate::models::{Agent, Project, SessionMessage, SessionSummary};
-use crate::services::session_reader;
+use crate::services::{agent_detector, session_reader};
 
 /// Recursively scan project for .md files
 fn scan_docs(root: &std::path::Path) -> Vec<PathBuf> {
@@ -155,6 +155,8 @@ pub fn Dashboard(
                         let has_cwd = agent.cwd.is_some();
                         let label = agent.agent_type.label().to_string();
                         let pid = agent.pid;
+                        let tty = agent.tty.clone();
+                        let has_tty = tty.is_some();
                         rsx! {
                             div { class: "card agent-card",
                                 div { class: "agent-status-dot" }
@@ -165,6 +167,23 @@ pub fn Dashboard(
                                         if has_cwd {
                                             " · {cwd_str}"
                                         }
+                                    }
+                                }
+                                if has_tty {
+                                    button {
+                                        class: "btn-focus-terminal",
+                                        title: "跳转到终端",
+                                        onclick: move |_| {
+                                            if let Some(ref t) = tty {
+                                                let tty_clone = t.clone();
+                                                spawn(async move {
+                                                    let _ = tokio::task::spawn_blocking(move || {
+                                                        agent_detector::focus_agent_terminal(&tty_clone)
+                                                    }).await;
+                                                });
+                                            }
+                                        },
+                                        "↗ 终端"
                                     }
                                 }
                             }
