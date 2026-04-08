@@ -3,28 +3,46 @@ use std::path::PathBuf;
 use std::process::Command;
 use crate::models::{Agent, Project, SessionSummary};
 
-/// Scan project root for .md files (non-recursive, then common dirs)
+/// Recursively scan project for .md files, skipping hidden dirs and common noise
 fn scan_docs(root: &std::path::Path) -> Vec<PathBuf> {
     let mut docs = Vec::new();
-    let scan_dirs = [
-        root.to_path_buf(),
-        root.join("docs"),
-        root.join("doc"),
-        root.join(".github"),
-    ];
-    for dir in &scan_dirs {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().is_some_and(|e| e == "md") {
-                    docs.push(path);
-                }
+    scan_docs_recursive(root, root, &mut docs, 0);
+    docs.sort_by(|a, b| {
+        // Root-level docs first, then by path
+        let a_depth = a.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
+        let b_depth = b.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
+        a_depth.cmp(&b_depth).then_with(|| a.cmp(b))
+    });
+    docs
+}
+
+fn scan_docs_recursive(root: &std::path::Path, dir: &std::path::Path, docs: &mut Vec<PathBuf>, depth: usize) {
+    if depth > 5 { return; } // limit recursion depth
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "md") {
+            docs.push(path);
+        } else if path.is_dir() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Skip hidden dirs, build artifacts, dependencies
+            if name.starts_with('.')
+                || name == "node_modules"
+                || name == "target"
+                || name == "build"
+                || name == "dist"
+                || name == "vendor"
+                || name == ".build"
+                || name == "Pods"
+            {
+                continue;
             }
+            scan_docs_recursive(root, &path, docs, depth + 1);
         }
     }
-    docs.sort();
-    docs.dedup();
-    docs
 }
 
 fn open_file(path: &std::path::Path) {
