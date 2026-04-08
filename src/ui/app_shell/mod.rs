@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::models::{Agent, Project, SessionSummary};
 use crate::models::AgentStatus;
-use crate::services::{agent_detector, island, notifier, project_manager, project_scanner, session_reader};
+use crate::services::{agent_detector, notifier, project_manager, project_scanner, session_reader};
 use crate::ui::styles::GLOBAL_CSS;
 
 mod sidebar;
@@ -48,17 +48,12 @@ pub fn AppShell() -> Element {
         });
     };
 
-    // Initial load + start island overlay
+    // Initial load
     use_hook(move || {
         load_all_projects();
         spawn(async move {
-            let detected = tokio::task::spawn_blocking(|| {
-                let agents = agent_detector::detect_agents();
-                // Start island overlay process
-                let _ = island::start_overlay();
-                island::write_island_state(&agents);
-                agents
-            }).await.unwrap_or_default();
+            let detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
+                .await.unwrap_or_default();
             agents.set(detected);
         });
     });
@@ -114,9 +109,6 @@ pub fn AppShell() -> Element {
                     prev_states.insert(agent.pid, agent.status.clone());
                 }
                 prev_pids = current_pids;
-
-                // Update island overlay state
-                island::write_island_state(&detected);
 
                 agents.set(detected);
             }
@@ -210,6 +202,7 @@ pub fn AppShell() -> Element {
                 on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
             }
             div { class: "main-panel",
+                DynamicIsland { agents: agents().clone() }
                 if show_settings() {
                     SettingsPanel {
                         on_close: move |_| show_settings.set(false),
