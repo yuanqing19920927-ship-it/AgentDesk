@@ -28,7 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Dynamic Island hangs down from the very top of the screen
         // Like iPhone: the black pill is anchored to the top edge
         let x = sf.midX - islandWidth / 2
-        let y = sf.maxY - islandHeight  // flush with the top edge of the screen
+        let y = screen.visibleFrame.maxY - islandHeight  // hang below menu bar
 
         let frame = NSRect(x: x, y: y, width: islandWidth, height: islandHeight)
 
@@ -159,7 +159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let w: CGFloat = total == 0 ? 180 : min(CGFloat(160 + total * 90), 520)
         let h: CGFloat = 32
         let x = sf.midX - w / 2
-        let y = sf.maxY - h  // anchored to top edge
+        let y = screen.visibleFrame.maxY - h  // hang below menu bar
         panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true, animate: true)
     }
 
