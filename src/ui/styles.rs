@@ -193,6 +193,68 @@ body {
     color: #007aff; display: flex; align-items: center; justify-content: center;
 }
 .btn-reorder:hover { background: #e5e5ea; }
+
+/* ══════════════════════════════
+   DYNAMIC ISLAND
+   ══════════════════════════════ */
+.island {
+    background: #1d1d1f;
+    border-radius: 22px;
+    padding: 6px 16px;
+    margin: 0 auto 20px;
+    max-width: 600px;
+    min-height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    transition: all 0.3s ease;
+}
+.island-empty {
+    max-width: 200px;
+    padding: 6px 14px;
+}
+.island-content {
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap; justify-content: center;
+}
+.island-icon { font-size: 14px; }
+.island-text { font-size: 12px; color: #86868b; }
+
+.island-group {
+    display: flex; align-items: center; gap: 4px;
+}
+.island-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+}
+.island-dot.busy { background: #ff9500; animation: pulse 1.5s ease-in-out infinite; }
+.island-dot.idle { background: #34c759; }
+.island-count { font-size: 14px; font-weight: 700; color: #fff; }
+.island-label { font-size: 10px; color: #86868b; }
+
+.island-sep {
+    width: 1px; height: 16px; background: #3a3a3c; flex-shrink: 0;
+}
+
+.island-agent {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 12px;
+    font-size: 11px;
+}
+.island-agent.busy {
+    background: rgba(255, 149, 0, 0.2);
+    color: #ff9500;
+}
+.island-agent.idle {
+    background: rgba(52, 199, 89, 0.15);
+    color: #34c759;
+}
+.island-agent-name { font-weight: 600; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.island-agent-cpu { font-size: 10px; opacity: 0.8; }
+.island-jump {
+    background: none; border: none; cursor: pointer;
+    font-size: 10px; color: inherit; opacity: 0.7;
+    padding: 0 2px;
+}
+.island-jump:hover { opacity: 1; }
 .sub-badge {
     font-size: 9px; color: #86868b; background: #ebebed;
     padding: 0 5px; border-radius: 3px; line-height: 15px;

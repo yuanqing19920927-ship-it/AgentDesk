@@ -8,11 +8,13 @@ use crate::ui::styles::GLOBAL_CSS;
 
 mod sidebar;
 mod dashboard;
+mod dynamic_island;
 mod new_agent_dialog;
 mod settings;
 
 use sidebar::Sidebar;
 use dashboard::Dashboard;
+use dynamic_island::DynamicIsland;
 use new_agent_dialog::NewAgentDialog;
 use settings::SettingsPanel;
 
@@ -200,6 +202,9 @@ pub fn AppShell() -> Element {
                 on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
             }
             div { class: "main-panel",
+                // Dynamic Island — always visible at top
+                DynamicIsland { agents: agents().clone() }
+
                 if show_settings() {
                     SettingsPanel {
                         on_close: move |_| show_settings.set(false),
