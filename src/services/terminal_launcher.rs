@@ -32,11 +32,23 @@ pub fn launch_agent(
         build_terminal_script(&dir_str, &full_cmd)
     };
 
+    eprintln!("[AgentDesk] Launching agent in: {}", dir_str);
+    eprintln!("[AgentDesk] Command: {}", full_cmd);
+    eprintln!("[AgentDesk] Script:\n{}", script);
+
     let output = Command::new("osascript")
         .arg("-e")
         .arg(&script)
         .output()
         .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+    eprintln!("[AgentDesk] osascript exit: {}", output.status);
+    if !output.stdout.is_empty() {
+        eprintln!("[AgentDesk] stdout: {}", String::from_utf8_lossy(&output.stdout));
+    }
+    if !output.stderr.is_empty() {
+        eprintln!("[AgentDesk] stderr: {}", String::from_utf8_lossy(&output.stderr));
+    }
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -56,6 +68,7 @@ fn build_iterm_script(dir: &str, cmd: &str) -> String {
     activate
     set newWindow to (create window with default profile)
     tell current session of newWindow
+        delay 0.5
         write text "cd " & quoted form of "{}" & " && {}"
     end tell
 end tell"#,
