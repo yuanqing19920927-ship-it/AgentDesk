@@ -5,58 +5,40 @@ use chrono::Local;
 use crate::models::{Agent, Project, SessionMessage, SessionSummary};
 use crate::services::{agent_detector, session_reader};
 
-/// Recursively scan project for .md files
 fn scan_docs(root: &std::path::Path) -> Vec<PathBuf> {
     let mut docs = Vec::new();
-    scan_docs_recursive(root, root, &mut docs, 0);
+    scan_docs_r(root, root, &mut docs, 0);
     docs.sort_by(|a, b| {
-        let a_depth = a.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
-        let b_depth = b.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
-        a_depth.cmp(&b_depth).then_with(|| a.cmp(b))
+        let ad = a.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
+        let bd = b.strip_prefix(root).map(|p| p.components().count()).unwrap_or(99);
+        ad.cmp(&bd).then_with(|| a.cmp(b))
     });
     docs
 }
-
-fn scan_docs_recursive(root: &std::path::Path, dir: &std::path::Path, docs: &mut Vec<PathBuf>, depth: usize) {
+fn scan_docs_r(root: &std::path::Path, dir: &std::path::Path, docs: &mut Vec<PathBuf>, depth: usize) {
     if depth > 5 { return; }
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() && path.extension().is_some_and(|e| e == "md") {
             docs.push(path);
         } else if path.is_dir() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || matches!(name.as_str(), "node_modules" | "target" | "build" | "dist" | "vendor" | "Pods") {
-                continue;
-            }
-            scan_docs_recursive(root, &path, docs, depth + 1);
+            let n = entry.file_name().to_string_lossy().to_string();
+            if n.starts_with('.') || matches!(n.as_str(), "node_modules"|"target"|"build"|"dist"|"vendor"|"Pods") { continue; }
+            scan_docs_r(root, &path, docs, depth + 1);
         }
     }
 }
-
-fn open_file(path: &std::path::Path) {
-    let _ = Command::new("open").arg(path).spawn();
-}
-
-/// Read README.md or first .md file as project summary
+fn open_file(p: &std::path::Path) { let _ = Command::new("open").arg(p).spawn(); }
 fn read_project_summary(root: &std::path::Path) -> Option<String> {
-    let candidates = ["README.md", "readme.md", "Readme.md", "README.MD"];
-    for name in &candidates {
-        let path = root.join(name);
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                // Take first meaningful paragraph (skip title lines)
-                let summary: String = content.lines()
+    for name in &["README.md","readme.md","Readme.md"] {
+        let p = root.join(name);
+        if p.exists() {
+            if let Ok(c) = std::fs::read_to_string(&p) {
+                let s: String = c.lines()
                     .filter(|l| !l.starts_with('#') && !l.trim().is_empty() && !l.starts_with("![") && !l.starts_with("[!["))
-                    .take(5)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !summary.is_empty() {
-                    return Some(summary);
-                }
+                    .take(5).collect::<Vec<_>>().join("\n");
+                if !s.is_empty() { return Some(s); }
             }
         }
     }
@@ -70,29 +52,19 @@ pub fn Dashboard(
     sessions: Vec<SessionSummary>,
     on_new_agent: EventHandler<()>,
 ) -> Element {
-    let last_active_str = project.last_active.map(|dt| dt.with_timezone(&Local).format("%m-%d %H:%M").to_string());
-    let has_last_active = last_active_str.is_some();
-    let last_active_display = last_active_str.unwrap_or_default();
+    let la = project.last_active.map(|dt| dt.with_timezone(&Local).format("%m-%d %H:%M").to_string());
+    let has_la = la.is_some();
+    let la_display = la.unwrap_or_default();
+    let docs = use_hook({ let r = project.root.clone(); move || scan_docs(&r) });
+    let summary = use_hook({ let r = project.root.clone(); move || read_project_summary(&r) });
+    let has_summary = summary.is_some();
+    let summary_text = summary.clone().unwrap_or_default();
+    let sc = sessions.len();
+    let tm: usize = sessions.iter().map(|s| s.message_count).sum();
 
-    let doc_files = use_hook({
-        let root = project.root.clone();
-        move || scan_docs(&root)
-    });
-
-    let project_summary = use_hook({
-        let root = project.root.clone();
-        move || read_project_summary(&root)
-    });
-    let has_summary = project_summary.is_some();
-    let summary_text = project_summary.clone().unwrap_or_default();
-
-    let session_count = sessions.len();
-    let total_messages: usize = sessions.iter().map(|s| s.message_count).sum();
-
-    // Track which session is expanded
-    let mut expanded_session = use_signal(|| None::<String>);
-    let mut expanded_messages = use_signal(Vec::<SessionMessage>::new);
-    let mut loading_detail = use_signal(|| false);
+    let mut expanded_sid = use_signal(|| None::<String>);
+    let mut expanded_msgs = use_signal(Vec::<SessionMessage>::new);
+    let mut loading = use_signal(|| false);
 
     rsx! {
         div {
@@ -102,254 +74,220 @@ pub fn Dashboard(
                     h1 { "{project.name}" }
                     div { class: "path", "{project.root.display()}" }
                 }
-                button { class: "btn btn-primary", onclick: move |_| on_new_agent.call(()),
-                    "＋ 新建 Agent"
+                div { class: "page-header-actions",
+                    button { class: "btn btn-primary", onclick: move |_| on_new_agent.call(()), "＋ 新建 Agent" }
                 }
             }
 
-            // ── Project Overview with Summary ──
+            // ── Overview ──
             div { class: "section",
                 div { class: "section-label", "项目总览" }
-
-                // Summary from README
                 if has_summary {
-                    div { class: "card summary-card",
-                        div { class: "summary-text", "{summary_text}" }
+                    div { class: "grouped-card", style: "margin-bottom: 10px;",
+                        div { class: "grouped-row",
+                            div { class: "summary-text", "{summary_text}" }
+                        }
                     }
                 }
-
                 div { class: "stats-grid",
                     div { class: "stat-card",
                         div { class: "stat-value green", "{project.agent_count}" }
                         div { class: "stat-label", "运行中 Agent" }
                     }
                     div { class: "stat-card",
-                        div { class: "stat-value blue", "{session_count}" }
+                        div { class: "stat-value blue", "{sc}" }
                         div { class: "stat-label", "会话总数" }
                     }
                     div { class: "stat-card",
-                        div { class: "stat-value blue", "{total_messages}" }
+                        div { class: "stat-value blue", "{tm}" }
                         div { class: "stat-label", "消息总数" }
                     }
-                    if has_last_active {
+                    if has_la {
                         div { class: "stat-card",
-                            div { class: "stat-value orange", "{last_active_display}" }
+                            div { class: "stat-value orange", "{la_display}" }
                             div { class: "stat-label", "最近活跃" }
                         }
                     }
                 }
             }
 
-            // ── Running agents ──
+            // ── Agents ──
             div { class: "section",
-                div { class: "section-label", "运行中的 Agent ({agents.len()})" }
-                if agents.is_empty() {
-                    div { class: "card",
-                        p { style: "color: #86868b; text-align: center; padding: 6px; font-size: 12px;",
-                            "当前没有运行中的 Agent"
+                div { class: "section-label", "运行中的 Agent" }
+                div { class: "grouped-card",
+                    if agents.is_empty() {
+                        div { class: "grouped-row",
+                            div { class: "row-label", style: "color: #86868b;", "当前没有运行中的 Agent" }
                         }
-                    }
-                } else {
-                    {agents.iter().map(|agent| {
-                        let cwd_str = agent.cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
-                        let has_cwd = agent.cwd.is_some();
-                        let label = agent.agent_type.label().to_string();
-                        let pid = agent.pid;
-                        let tty = agent.tty.clone();
-                        let has_tty = tty.is_some();
-                        rsx! {
-                            div { class: "card agent-card",
-                                div { class: "agent-status-dot" }
-                                div { class: "agent-card-body",
-                                    div { class: "agent-card-title", "{label}" }
-                                    div { class: "agent-card-sub",
-                                        "PID {pid}"
-                                        if has_cwd {
-                                            " · {cwd_str}"
-                                        }
-                                    }
-                                }
-                                if has_tty {
-                                    button {
-                                        class: "btn-focus-terminal",
-                                        title: "跳转到终端",
-                                        onclick: move |_| {
-                                            if let Some(ref t) = tty {
-                                                let tty_clone = t.clone();
-                                                spawn(async move {
-                                                    let _ = tokio::task::spawn_blocking(move || {
-                                                        agent_detector::focus_agent_terminal(&tty_clone)
-                                                    }).await;
-                                                });
+                    } else {
+                        {agents.iter().map(|agent| {
+                            let cwd_str = agent.cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
+                            let has_cwd = agent.cwd.is_some();
+                            let label = agent.agent_type.label().to_string();
+                            let pid = agent.pid;
+                            let tty = agent.tty.clone();
+                            let has_tty = tty.is_some();
+                            rsx! {
+                                div { class: "grouped-row",
+                                    div { style: "display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;",
+                                        div { class: "status-dot" }
+                                        div { class: "row-content",
+                                            div { class: "row-label-bold", "{label}" }
+                                            div { class: "row-sub",
+                                                "PID {pid}"
+                                                if has_cwd { " · {cwd_str}" }
                                             }
-                                        },
-                                        "↗ 终端"
-                                    }
-                                }
-                            }
-                        }
-                    })}
-                }
-            }
-
-            // ── Project docs ──
-            div { class: "section",
-                div { class: "section-label", "项目文档 ({doc_files.len()})" }
-                if doc_files.is_empty() {
-                    div { class: "card",
-                        p { style: "color: #86868b; text-align: center; padding: 6px; font-size: 12px;",
-                            "未发现 Markdown 文档"
-                        }
-                    }
-                } else {
-                    {doc_files.iter().map(|path| {
-                        let display_name = path.file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        let rel_path = path.strip_prefix(&project.root)
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|_| path.display().to_string());
-                        let path_clone = path.clone();
-                        rsx! {
-                            div {
-                                class: "card doc-item",
-                                onclick: move |_| open_file(&path_clone),
-                                div { class: "doc-icon", "📄" }
-                                div { class: "doc-info",
-                                    div { class: "doc-name", "{display_name}" }
-                                    div { class: "doc-path", "{rel_path}" }
-                                }
-                            }
-                        }
-                    })}
-                }
-            }
-
-            // ── Session history (at bottom, expandable) ──
-            div { class: "section",
-                div { class: "section-label", "历史会话 ({session_count})" }
-                if sessions.is_empty() {
-                    div { class: "card",
-                        p { style: "color: #86868b; text-align: center; padding: 6px; font-size: 12px;",
-                            "暂无会话记录"
-                        }
-                    }
-                } else {
-                    {sessions.iter().map(|session| {
-                        let sid = session.session_id.clone();
-                        let is_expanded = expanded_session() == Some(sid.clone());
-                        let ts_str = session.started_at
-                            .map(|ts| ts.with_timezone(&Local).format("%m-%d %H:%M").to_string())
-                            .unwrap_or_default();
-                        let has_ts = session.started_at.is_some();
-                        let msg_count = session.message_count;
-                        let branch_str = session.git_branch.clone().unwrap_or_default();
-                        let has_branch = session.git_branch.is_some();
-                        let preview_str = session.preview.clone().unwrap_or_default();
-                        let has_preview = session.preview.is_some();
-                        let arrow = if is_expanded { "▼" } else { "▶" };
-
-                        let card_cls = if is_expanded { "card session-card session-expanded" } else { "card session-card session-clickable" };
-
-                        // For expanding: load messages
-                        let sid_for_click = sid.clone();
-                        let claude_dirs = project.claude_dir_names.clone();
-
-                        rsx! {
-                            div { class: "{card_cls}",
-                                // Clickable header
-                                div {
-                                    class: "session-header-row",
-                                    onclick: move |_| {
-                                        if expanded_session() == Some(sid_for_click.clone()) {
-                                            // Collapse
-                                            expanded_session.set(None);
-                                            expanded_messages.set(Vec::new());
-                                        } else {
-                                            // Expand: load messages
-                                            let sid_load = sid_for_click.clone();
-                                            let dirs = claude_dirs.clone();
-                                            expanded_session.set(Some(sid_load.clone()));
-                                            loading_detail.set(true);
-                                            spawn(async move {
-                                                let msgs = tokio::task::spawn_blocking(move || {
-                                                    let home = dirs::home_dir().unwrap_or_default();
-                                                    for dir_name in &dirs {
-                                                        let claude_dir = home.join(".claude").join("projects").join(dir_name);
-                                                        let msgs = session_reader::read_session_messages(&claude_dir, &sid_load);
-                                                        if !msgs.is_empty() {
-                                                            return msgs;
-                                                        }
-                                                    }
-                                                    Vec::new()
-                                                }).await.unwrap_or_default();
-                                                expanded_messages.set(msgs);
-                                                loading_detail.set(false);
-                                            });
                                         }
-                                    },
-                                    span { class: "session-arrow", "{arrow}" }
-                                    div { class: "session-row", style: "flex: 1;",
-                                        if has_ts {
-                                            span { class: "session-time", "{ts_str}" }
-                                        }
-                                        if has_branch {
-                                            span { class: "session-branch", "{branch_str}" }
-                                        }
-                                        span { class: "session-msgs", "{msg_count} 条消息" }
                                     }
-                                }
-                                if !is_expanded {
-                                    if has_preview {
-                                        div { class: "session-preview-text", style: "padding-left: 22px;", "{preview_str}" }
-                                    }
-                                }
-                                // Expanded detail
-                                if is_expanded {
-                                    div { class: "session-detail",
-                                        if loading_detail() {
-                                            p { style: "color: #86868b; padding: 12px; text-align: center;", "加载中..." }
-                                        } else if expanded_messages().is_empty() {
-                                            p { style: "color: #86868b; padding: 12px; text-align: center;", "无法加载会话内容" }
-                                        } else {
-                                            {expanded_messages().iter().map(|msg| {
-                                                let is_user = msg.role == "user";
-                                                let role_label = if is_user { "用户" } else { "助手" };
-                                                let bubble_cls = if is_user { "msg-bubble msg-user" } else { "msg-bubble msg-assistant" };
-                                                let ts_display = msg.timestamp
-                                                    .map(|t| t.with_timezone(&Local).format("%H:%M:%S").to_string())
-                                                    .unwrap_or_default();
-                                                let has_msg_ts = msg.timestamp.is_some();
-                                                let content_display = truncate_msg(&msg.content, 2000);
-                                                rsx! {
-                                                    div { class: "{bubble_cls}",
-                                                        div { class: "msg-header",
-                                                            span { class: "msg-role", "{role_label}" }
-                                                            if has_msg_ts {
-                                                                span { class: "msg-time", "{ts_display}" }
-                                                            }
-                                                        }
-                                                        div { class: "msg-content", "{content_display}" }
-                                                    }
+                                    if has_tty {
+                                        button {
+                                            class: "btn-focus-terminal",
+                                            onclick: move |_| {
+                                                if let Some(ref t) = tty {
+                                                    let tc = t.clone();
+                                                    spawn(async move { let _ = tokio::task::spawn_blocking(move || agent_detector::focus_agent_terminal(&tc)).await; });
                                                 }
-                                            })}
+                                            },
+                                            "↗ 终端"
                                         }
                                     }
                                 }
                             }
+                        })}
+                    }
+                }
+            }
+
+            // ── Docs ──
+            div { class: "section",
+                div { class: "section-label", "项目文档" }
+                div { class: "grouped-card",
+                    if docs.is_empty() {
+                        div { class: "grouped-row",
+                            div { class: "row-label", style: "color: #86868b;", "未发现 Markdown 文档" }
                         }
-                    })}
+                    } else {
+                        {docs.iter().map(|path| {
+                            let dn = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            let rp = path.strip_prefix(&project.root).map(|p| p.display().to_string()).unwrap_or_else(|_| path.display().to_string());
+                            let pc = path.clone();
+                            rsx! {
+                                div { class: "grouped-row grouped-row-clickable", onclick: move |_| open_file(&pc),
+                                    div { style: "display: flex; align-items: center; gap: 8px;",
+                                        div { class: "doc-icon", "📄" }
+                                        div {
+                                            div { class: "doc-name", "{dn}" }
+                                            div { class: "doc-path", "{rp}" }
+                                        }
+                                    }
+                                    div { class: "row-value", "›" }
+                                }
+                            }
+                        })}
+                    }
+                }
+            }
+
+            // ── Session history ──
+            div { class: "section",
+                div { class: "section-label", "历史会话 ({sc})" }
+                div { class: "grouped-card",
+                    if sessions.is_empty() {
+                        div { class: "grouped-row",
+                            div { class: "row-label", style: "color: #86868b;", "暂无会话记录" }
+                        }
+                    } else {
+                        {sessions.iter().map(|session| {
+                            let sid = session.session_id.clone();
+                            let is_exp = expanded_sid() == Some(sid.clone());
+                            let ts = session.started_at.map(|t| t.with_timezone(&Local).format("%m-%d %H:%M").to_string()).unwrap_or_default();
+                            let has_ts = session.started_at.is_some();
+                            let mc = session.message_count;
+                            let br = session.git_branch.clone().unwrap_or_default();
+                            let has_br = session.git_branch.is_some();
+                            let pv = session.preview.clone().unwrap_or_default();
+                            let has_pv = session.preview.is_some();
+                            let arrow = if is_exp { "▼" } else { "▶" };
+                            let row_cls = if is_exp { "grouped-row session-expanded" } else { "grouped-row" };
+                            let sid_click = sid.clone();
+                            let cdirs = project.claude_dir_names.clone();
+
+                            rsx! {
+                                div {
+                                    div { class: "{row_cls}",
+                                        div {
+                                            class: "session-header-row",
+                                            onclick: move |_| {
+                                                if expanded_sid() == Some(sid_click.clone()) {
+                                                    expanded_sid.set(None); expanded_msgs.set(Vec::new());
+                                                } else {
+                                                    let sl = sid_click.clone(); let d = cdirs.clone();
+                                                    expanded_sid.set(Some(sl.clone())); loading.set(true);
+                                                    spawn(async move {
+                                                        let m = tokio::task::spawn_blocking(move || {
+                                                            let h = dirs::home_dir().unwrap_or_default();
+                                                            for dn in &d {
+                                                                let cd = h.join(".claude").join("projects").join(dn);
+                                                                let ms = session_reader::read_session_messages(&cd, &sl);
+                                                                if !ms.is_empty() { return ms; }
+                                                            }
+                                                            Vec::new()
+                                                        }).await.unwrap_or_default();
+                                                        expanded_msgs.set(m); loading.set(false);
+                                                    });
+                                                }
+                                            },
+                                            span { class: "session-arrow", "{arrow}" }
+                                            if has_ts { span { class: "session-time", "{ts}" } }
+                                            if has_br { span { class: "session-branch", "{br}" } }
+                                            span { class: "session-msgs", "{mc} 条消息" }
+                                        }
+                                    }
+                                    if !is_exp {
+                                        if has_pv {
+                                            div { style: "padding: 0 16px 8px;",
+                                                div { class: "session-preview-text", "{pv}" }
+                                            }
+                                        }
+                                    }
+                                    if is_exp {
+                                        div { class: "session-detail", style: "padding: 0 16px 12px;",
+                                            if loading() {
+                                                p { style: "color: #86868b; padding: 12px 0; text-align: center;", "加载中..." }
+                                            } else if expanded_msgs().is_empty() {
+                                                p { style: "color: #86868b; padding: 12px 0; text-align: center;", "无法加载会话内容" }
+                                            } else {
+                                                {expanded_msgs().iter().map(|msg| {
+                                                    let is_u = msg.role == "user";
+                                                    let rl = if is_u { "用户" } else { "助手" };
+                                                    let bc = if is_u { "msg-bubble msg-user" } else { "msg-bubble msg-assistant" };
+                                                    let td = msg.timestamp.map(|t| t.with_timezone(&Local).format("%H:%M:%S").to_string()).unwrap_or_default();
+                                                    let has_mt = msg.timestamp.is_some();
+                                                    let cd = truncate_msg(&msg.content, 2000);
+                                                    rsx! {
+                                                        div { class: "{bc}",
+                                                            div { class: "msg-header",
+                                                                span { class: "msg-role", "{rl}" }
+                                                                if has_mt { span { class: "msg-time", "{td}" } }
+                                                            }
+                                                            div { class: "msg-content", "{cd}" }
+                                                        }
+                                                    }
+                                                })}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        })}
+                    }
                 }
             }
         }
     }
 }
 
-fn truncate_msg(s: &str, max_chars: usize) -> String {
-    let truncated: String = s.chars().take(max_chars).collect();
-    if truncated.len() < s.len() {
-        format!("{}...\n\n[内容过长，已截断]", truncated)
-    } else {
-        truncated
-    }
+fn truncate_msg(s: &str, max: usize) -> String {
+    let t: String = s.chars().take(max).collect();
+    if t.len() < s.len() { format!("{}...\n\n[内容过长，已截断]", t) } else { t }
 }
