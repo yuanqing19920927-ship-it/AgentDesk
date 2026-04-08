@@ -1,11 +1,12 @@
 import AppKit
 import WebKit
 
-// === Dynamic Island Overlay for AgentDesk ===
-// Positioned right below the macOS notch, centered
+// === AgentDesk Dynamic Island ===
+// Floating overlay that sits on top of the macOS notch area
+// Auto-adapts to screen size and notch presence
 
 class IslandPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
@@ -16,22 +17,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var parentPid: pid_t = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Track parent process to auto-quit when main app exits
         parentPid = getppid()
 
         guard let screen = NSScreen.main else { return }
         let sf = screen.frame
-        let vf = screen.visibleFrame  // excludes menu bar and dock
 
-        // The notch area is between screen top and visible frame top
-        let menuBarBottom = vf.maxY  // bottom of menu bar = top of visible area
-        let notchCenterX = sf.midX
+        // Notch dimensions: ~180pt wide, sits in menu bar area
+        // We position our island to overlap the notch, expanding outward
+        let islandHeight: CGFloat = 32
+        let islandWidth: CGFloat = 280
 
-        // Island: positioned just below menu bar, centered on screen
-        let islandWidth: CGFloat = 300
-        let islandHeight: CGFloat = 36
-        let x = notchCenterX - islandWidth / 2
-        let y = menuBarBottom - islandHeight - 2  // just below menu bar
+        // Center horizontally, pin to very top of screen (inside menu bar / notch)
+        let x = sf.midX - islandWidth / 2
+        // Place at the top of the screen, overlapping the menu bar area
+        // The notch bottom is approximately screen.top - 33pt
+        let y = sf.maxY - islandHeight - 5
 
         let frame = NSRect(x: x, y: y, width: islandWidth, height: islandHeight)
 
@@ -41,15 +41,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.level = .statusBar
+        // Above everything, including menu bar
+        panel.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.isMovableByWindowBackground = false
         panel.ignoresMouseEvents = false
+        panel.isMovableByWindowBackground = false
 
         let config = WKWebViewConfiguration()
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: islandWidth, height: islandHeight), configuration: config)
@@ -59,10 +60,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         updateIsland()
 
-        // Poll every 2s + check if parent still alive
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            // Auto-quit if parent process died
             if kill(self.parentPid, 0) != 0 {
                 self.cleanup()
                 NSApp.terminate(nil)
@@ -71,10 +70,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.updateIsland()
         }
 
-        // Also handle SIGTERM gracefully
-        signal(SIGTERM) { _ in
-            NSApp.terminate(nil)
-        }
+        // Listen for screen changes (resolution, display connect/disconnect)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screenChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil
+        )
+
+        signal(SIGTERM) { _ in NSApp.terminate(nil) }
+    }
+
+    @objc func screenChanged() {
+        updateIsland()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -83,8 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func cleanup() {
         timer?.invalidate()
-        let path = NSHomeDirectory() + "/.agentdesk/island_state.json"
-        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: NSHomeDirectory() + "/.agentdesk/island_state.json")
     }
 
     func updateIsland() {
@@ -101,71 +106,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let idleCount = idleAgents.count
         let total = busyCount + idleCount
 
-        var pillsHtml = ""
+        // Build pills
+        var pills = ""
         for a in busyAgents {
-            let name = a["project"] as? String ?? ""
+            let name = a["project"] as? String ?? "?"
             let cpu = a["cpu"] as? Double ?? 0
-            pillsHtml += "<span class='pill busy'>\(esc(name)) <span class='cpu'>\(String(format: "%.0f", cpu))%</span></span>"
+            pills += "<span class='p b'>\(esc(name))<span class='c'>\(String(format:"%.0f",cpu))%</span></span>"
         }
         for a in idleAgents {
-            let name = a["project"] as? String ?? ""
-            pillsHtml += "<span class='pill idle'>\(esc(name))</span>"
+            let name = a["project"] as? String ?? "?"
+            pills += "<span class='p i'>\(esc(name))</span>"
         }
 
-        let html: String
+        let body: String
         if total == 0 {
-            html = buildHtml(body: "<span class='empty'>💤 暂无活跃 Agent</span>")
+            body = "<span class='e'>暂无活跃 Agent</span>"
         } else {
-            var summary = ""
-            if busyCount > 0 { summary += "<span class='dot busy-dot'></span><b>\(busyCount)</b><span class='lbl'>工作中</span>" }
-            if idleCount > 0 { summary += "<span class='dot idle-dot'></span><b>\(idleCount)</b><span class='lbl'>空闲</span>" }
-            html = buildHtml(body: "\(summary)<span class='sep'></span>\(pillsHtml)")
+            var s = ""
+            if busyCount > 0 { s += "<span class='d bd'></span><b>\(busyCount)</b><span class='l'>工作中</span>" }
+            if idleCount > 0 { s += "<span class='d id'></span><b>\(idleCount)</b><span class='l'>空闲</span>" }
+            if !pills.isEmpty { s += "<span class='sp'></span>" }
+            body = s + pills
         }
+
+        let html = """
+        <!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{background:transparent;overflow:hidden;height:100%}
+        body{display:flex;align-items:center;justify-content:center;
+             font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased}
+        .is{background:#000;border-radius:17px;padding:0 14px;height:30px;
+            display:inline-flex;align-items:center;gap:6px;color:#fff;font-size:11px}
+        .d{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:1px}
+        .bd{background:#ff9500;animation:p 1.5s ease-in-out infinite}
+        .id{background:#34c759}
+        @keyframes p{0%,100%{opacity:1}50%{opacity:.35}}
+        b{font-size:12px;font-weight:700}
+        .l{color:#888;font-size:9px;margin-right:2px}
+        .sp{width:1px;height:12px;background:#333}
+        .p{display:inline-flex;align-items:center;gap:2px;padding:1px 7px;
+           border-radius:9px;font-size:10px;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .p.b{background:rgba(255,149,0,.2);color:#ff9500}
+        .p.i{background:rgba(52,199,89,.12);color:#34c759}
+        .c{font-size:9px;opacity:.7}
+        .e{color:#555;font-size:10px}
+        </style></head><body><div class="is">\(body)</div></body></html>
+        """
 
         webView.loadHTMLString(html, baseURL: nil)
 
-        // Resize and reposition
-        let width: CGFloat = total == 0 ? 190 : min(CGFloat(160 + total * 85), 550)
-        if let screen = NSScreen.main {
-            let vf = screen.visibleFrame
-            let x = screen.frame.midX - width / 2
-            let y = vf.maxY - 36 - 2
-            panel.setFrame(NSRect(x: x, y: y, width: width, height: 36), display: true, animate: true)
-        }
+        // Resize to fit content, reposition centered at notch
+        guard let screen = NSScreen.main else { return }
+        let sf = screen.frame
+        let w: CGFloat = total == 0 ? 180 : min(CGFloat(140 + total * 80), 500)
+        let h: CGFloat = 32
+        let x = sf.midX - w / 2
+        let y = sf.maxY - h - 5
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true, animate: true)
     }
 
     func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")
          .replacingOccurrences(of: "<", with: "&lt;")
          .replacingOccurrences(of: ">", with: "&gt;")
-    }
-
-    func buildHtml(body: String) -> String {
-        """
-        <!DOCTYPE html><html><head><style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        html,body{background:transparent;overflow:hidden;height:100%}
-        body{display:flex;align-items:center;justify-content:center;
-             font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased}
-        .island{background:rgba(20,20,22,0.88);-webkit-backdrop-filter:blur(30px);
-                border-radius:18px;padding:0 12px;height:32px;
-                display:inline-flex;align-items:center;gap:7px;color:#fff;font-size:11px;
-                box-shadow:0 1px 6px rgba(0,0,0,0.25)}
-        .dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:1px}
-        .busy-dot{background:#ff9500;animation:p 1.5s ease-in-out infinite}
-        .idle-dot{background:#34c759}
-        @keyframes p{0%,100%{opacity:1}50%{opacity:.4}}
-        b{font-size:12px;font-weight:700}
-        .lbl{color:#86868b;font-size:9px;margin-right:3px}
-        .sep{width:1px;height:12px;background:#3a3a3c}
-        .pill{display:inline-flex;align-items:center;gap:2px;padding:1px 7px;
-              border-radius:9px;font-size:10px;font-weight:600}
-        .pill.busy{background:rgba(255,149,0,.2);color:#ff9500}
-        .pill.idle{background:rgba(52,199,89,.15);color:#34c759}
-        .cpu{font-size:9px;opacity:.7}
-        .empty{color:#636366;font-size:10px}
-        </style></head><body><div class="island">\(body)</div></body></html>
-        """
     }
 }
 

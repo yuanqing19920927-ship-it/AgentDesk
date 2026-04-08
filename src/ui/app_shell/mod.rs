@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::models::{Agent, Project, SessionSummary};
 use crate::models::AgentStatus;
-use crate::services::{agent_detector, notifier, project_manager, project_scanner, session_reader};
+use crate::services::{agent_detector, island, notifier, project_manager, project_scanner, session_reader};
 use crate::ui::styles::GLOBAL_CSS;
 
 mod sidebar;
@@ -48,12 +48,16 @@ pub fn AppShell() -> Element {
         });
     };
 
-    // Initial load
+    // Initial load + start island overlay
     use_hook(move || {
         load_all_projects();
         spawn(async move {
-            let detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
-                .await.unwrap_or_default();
+            let detected = tokio::task::spawn_blocking(|| {
+                let ag = agent_detector::detect_agents();
+                let _ = island::start_overlay();
+                island::write_island_state(&ag);
+                ag
+            }).await.unwrap_or_default();
             agents.set(detected);
         });
     });
@@ -110,6 +114,7 @@ pub fn AppShell() -> Element {
                 }
                 prev_pids = current_pids;
 
+                island::write_island_state(&detected);
                 agents.set(detected);
             }
         });
