@@ -198,29 +198,6 @@ pub fn AppShell() -> Element {
                 selected_idx: if show_settings() { None } else { selected_idx() },
                 on_select: move |i: usize| { show_settings.set(false); selected_idx.set(Some(i)); },
                 on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
-                on_add_project: move |_| {
-                    // Open folder picker and add project
-                    spawn(async move {
-                        let result = tokio::task::spawn_blocking(|| {
-                            if let Some(path) = project_manager::pick_folder() {
-                                project_manager::add_custom_project(&path)
-                            } else {
-                                Err("已取消".to_string())
-                            }
-                        }).await;
-
-                        match result {
-                            Ok(Ok(())) => {
-                                // Reload projects
-                                load_all_projects();
-                            }
-                            Ok(Err(_e)) => {
-                                // Could show error, for now just ignore (duplicate or cancelled)
-                            }
-                            Err(_) => {}
-                        }
-                    });
-                },
             }
             div { class: "main-panel",
                 if show_settings() {

@@ -173,6 +173,19 @@ body {
     font-size: 11px; color: #86868b; padding: 2px 0;
 }
 .btn-kill-cancel:hover { text-decoration: underline; }
+
+/* ── Context menu extras ── */
+.ctx-menu-separator { height: 1px; background: #e5e5ea; margin: 4px 8px; }
+.ctx-menu-header { padding: 4px 10px; font-size: 10px; color: #86868b; font-weight: 600; }
+.ctx-menu-active { color: #007aff; }
+.ctx-menu-active:hover { background: #007aff; color: #fff; }
+
+/* ── Settings group input ── */
+.group-input {
+    flex: 1; padding: 5px 8px; border: 1px solid #d1d1d6; border-radius: 5px;
+    font-size: 13px; background: #fff; color: #1d1d1f; outline: none;
+}
+.group-input:focus { border-color: #007aff; }
 .sub-badge {
     font-size: 9px; color: #86868b; background: #ebebed;
     padding: 0 5px; border-radius: 3px; line-height: 15px;
