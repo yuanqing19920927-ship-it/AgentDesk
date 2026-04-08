@@ -55,8 +55,8 @@ pub fn Dashboard(
     let la = project.last_active.map(|dt| dt.with_timezone(&Local).format("%m-%d %H:%M").to_string());
     let has_la = la.is_some();
     let la_display = la.unwrap_or_default();
-    let docs = use_hook({ let r = project.root.clone(); move || scan_docs(&r) });
-    let summary = use_hook({ let r = project.root.clone(); move || read_project_summary(&r) });
+    let docs = scan_docs(&project.root);
+    let summary = read_project_summary(&project.root);
     let has_summary = summary.is_some();
     let summary_text = summary.clone().unwrap_or_default();
     let sc = sessions.len();
