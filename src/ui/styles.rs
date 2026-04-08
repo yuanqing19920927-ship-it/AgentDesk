@@ -157,6 +157,22 @@ body {
 .status-tag.idle { background: #e8f5e9; color: #34c759; }
 
 .subagent-row { background: #f9f9fb; }
+.agent-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.btn-kill {
+    background: transparent; border: none; cursor: pointer;
+    font-size: 11px; font-weight: 500; color: #ff3b30; padding: 2px 0;
+}
+.btn-kill:hover { text-decoration: underline; }
+.btn-kill.confirm {
+    background: #ff3b30; color: #fff; border-radius: 4px;
+    padding: 2px 8px; font-size: 11px;
+}
+.btn-kill.confirm:hover { background: #d63030; }
+.btn-kill-cancel {
+    background: transparent; border: none; cursor: pointer;
+    font-size: 11px; color: #86868b; padding: 2px 0;
+}
+.btn-kill-cancel:hover { text-decoration: underline; }
 .sub-badge {
     font-size: 9px; color: #86868b; background: #ebebed;
     padding: 0 5px; border-radius: 3px; line-height: 15px;

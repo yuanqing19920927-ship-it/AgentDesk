@@ -65,6 +65,8 @@ pub fn Dashboard(
     let mut expanded_sid = use_signal(|| None::<String>);
     let mut expanded_msgs = use_signal(Vec::<SessionMessage>::new);
     let mut loading = use_signal(|| false);
+    // Track which PID is pending kill confirmation
+    let mut confirm_kill_pid = use_signal(|| None::<u32>);
 
     rsx! {
         div {
@@ -159,16 +161,40 @@ pub fn Dashboard(
                                             }
                                         }
                                     }
-                                    if has_tty {
-                                        button {
-                                            class: "btn-focus-terminal",
-                                            onclick: move |_| {
-                                                if let Some(ref t) = tty {
-                                                    let tc = t.clone();
-                                                    spawn(async move { let _ = tokio::task::spawn_blocking(move || agent_detector::focus_agent_terminal(&tc)).await; });
-                                                }
-                                            },
-                                            "↗ 终端"
+                                    div { class: "agent-actions",
+                                        if has_tty {
+                                            button {
+                                                class: "btn-focus-terminal",
+                                                onclick: move |_| {
+                                                    if let Some(ref t) = tty {
+                                                        let tc = t.clone();
+                                                        spawn(async move { let _ = tokio::task::spawn_blocking(move || agent_detector::focus_agent_terminal(&tc)).await; });
+                                                    }
+                                                },
+                                                "↗ 终端"
+                                            }
+                                        }
+                                        if confirm_kill_pid() == Some(pid) {
+                                            // Confirmation state
+                                            button {
+                                                class: "btn-kill confirm",
+                                                onclick: move |_| {
+                                                    let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
+                                                    confirm_kill_pid.set(None);
+                                                },
+                                                "确认终止"
+                                            }
+                                            button {
+                                                class: "btn-kill-cancel",
+                                                onclick: move |_| confirm_kill_pid.set(None),
+                                                "取消"
+                                            }
+                                        } else {
+                                            button {
+                                                class: "btn-kill",
+                                                onclick: move |_| confirm_kill_pid.set(Some(pid)),
+                                                "终止"
+                                            }
                                         }
                                     }
                                 }
