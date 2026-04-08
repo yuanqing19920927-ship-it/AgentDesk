@@ -186,4 +186,40 @@ body {
     font-size: 11px; color: #86868b; margin-top: 1px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── Project summary ── */
+.summary-card { margin-bottom: 12px; }
+.summary-text {
+    font-size: 13px; color: #3a3a3c; line-height: 1.6;
+    white-space: pre-line;
+}
+
+/* ── Session expandable ── */
+.session-clickable { cursor: pointer; transition: background 0.1s; }
+.session-clickable:hover { background: #f9f9fb; }
+.session-expanded { border-color: #007aff; }
+.session-header-row {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 2px 0;
+}
+.session-arrow {
+    font-size: 10px; color: #86868b; width: 16px; flex-shrink: 0; text-align: center;
+}
+.session-detail {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e5ea;
+    max-height: 500px; overflow-y: auto;
+}
+.msg-bubble {
+    margin-bottom: 10px; padding: 8px 12px; border-radius: 8px;
+    font-size: 13px; line-height: 1.5;
+}
+.msg-user { background: #007aff0d; border-left: 3px solid #007aff; }
+.msg-assistant { background: #f2f2f7; border-left: 3px solid #34c759; }
+.msg-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.msg-role { font-weight: 600; font-size: 11px; color: #3a3a3c; }
+.msg-time { font-size: 10px; color: #aeaeb2; }
+.msg-content {
+    font-size: 12px; color: #1d1d1f; white-space: pre-wrap;
+    word-break: break-word;
+}
 "#;

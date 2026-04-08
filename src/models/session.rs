@@ -24,3 +24,11 @@ pub struct SessionSummary {
     pub git_branch: Option<String>,
     pub preview: Option<String>,
 }
+
+/// A single message in a session conversation
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionMessage {
+    pub role: String,       // "user" or "assistant"
+    pub content: String,
+    pub timestamp: Option<DateTime<Utc>>,
+}
