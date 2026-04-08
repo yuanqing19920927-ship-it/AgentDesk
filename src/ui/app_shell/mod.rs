@@ -14,7 +14,7 @@ mod settings;
 
 use sidebar::Sidebar;
 use dashboard::Dashboard;
-use dynamic_island::DynamicIsland;
+// dynamic_island module kept for potential future in-app use
 use new_agent_dialog::NewAgentDialog;
 use settings::SettingsPanel;
 
