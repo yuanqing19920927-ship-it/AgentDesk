@@ -77,7 +77,7 @@ fn parse_codex(line: &str) -> Option<Agent> {
 
 fn get_process_cwd(pid: u32) -> Option<PathBuf> {
     let output = Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
+        .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
         .output()
         .ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
