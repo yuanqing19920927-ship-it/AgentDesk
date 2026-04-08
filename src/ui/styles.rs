@@ -172,4 +172,18 @@ body {
 }
 .warning-title { color: #8a6d00; font-weight: 600; font-size: 12px; }
 .warning-text { color: #6b5300; margin-top: 3px; font-size: 11px; }
+
+/* ── Doc list ── */
+.doc-item {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    transition: background 0.1s ease;
+}
+.doc-item:hover { background: #f2f2f7; }
+.doc-icon { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; }
+.doc-info { flex: 1; min-width: 0; }
+.doc-name { font-weight: 500; font-size: 13px; color: #007aff; }
+.doc-path {
+    font-size: 11px; color: #86868b; margin-top: 1px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 "#;
