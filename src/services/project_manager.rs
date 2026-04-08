@@ -77,6 +77,39 @@ pub fn custom_projects_as_models() -> Vec<Project> {
     }).collect()
 }
 
+// ── Project nicknames ──
+
+fn nicknames_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".agentdesk")
+        .join("project_nicknames.json")
+}
+
+/// Load project nicknames: path -> nickname
+pub fn load_nicknames() -> std::collections::HashMap<String, String> {
+    let path = nicknames_path();
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Save a nickname for a project
+pub fn set_nickname(project_path: &str, nickname: &str) {
+    let mut map = load_nicknames();
+    if nickname.trim().is_empty() {
+        map.remove(project_path);
+    } else {
+        map.insert(project_path.to_string(), nickname.trim().to_string());
+    }
+    let dir = dirs::home_dir().unwrap_or_default().join(".agentdesk");
+    let _ = fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = fs::write(nicknames_path(), json);
+    }
+}
+
 /// Open macOS folder picker dialog, returns selected path or None
 pub fn pick_folder() -> Option<String> {
     let output = Command::new("osascript")

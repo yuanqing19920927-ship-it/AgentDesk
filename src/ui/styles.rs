@@ -26,25 +26,56 @@ body {
     text-transform: uppercase; letter-spacing: 0.3px;
     padding: 12px 16px 6px;
 }
+/* ── Home project (pinned) ── */
+.home-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; margin: 4px 8px 8px;
+    border-radius: 10px; cursor: pointer;
+    background: linear-gradient(135deg, #e8f0fe 0%, #f0e6ff 100%);
+    border: 1px solid #d4d4f7;
+    transition: all 0.12s;
+}
+.home-item:hover { border-color: #b4b4f7; }
+.home-item.selected { background: linear-gradient(135deg, #007aff 0%, #5856d6 100%); border-color: transparent; }
+.home-item.selected .home-name { color: #fff; }
+.home-item.selected .project-meta,
+.home-item.selected .project-meta span { color: rgba(255,255,255,0.7) !important; }
+.home-item.selected .agent-badge { background: rgba(255,255,255,0.25); color: #fff; }
+.home-icon { font-size: 20px; flex-shrink: 0; }
+.home-info { flex: 1; min-width: 0; }
+.home-name { font-weight: 700; font-size: 14px; color: #1d1d1f; }
+
 .project-list { flex: 1; overflow-y: auto; padding-bottom: 12px; }
 .project-item {
-    padding: 8px 12px; cursor: pointer;
-    border-radius: 6px; margin: 1px 8px;
+    padding: 10px 14px; cursor: pointer;
+    border-radius: 6px; margin: 0 8px;
     transition: background-color 0.1s ease;
+    border-bottom: 1px solid #f0f0f2;
 }
-.project-item:hover { background-color: rgba(0, 0, 0, 0.04); }
-.project-item.selected { background-color: #007aff; }
+.project-item:last-child { border-bottom: none; }
+.project-item:hover { background-color: rgba(0, 0, 0, 0.03); }
+.project-item.selected { background-color: #007aff; border-bottom-color: transparent; }
 .project-item.selected .project-name { color: #fff; }
-.project-item.selected .project-path,
 .project-item.selected .project-meta,
 .project-item.selected .project-meta span { color: rgba(255,255,255,0.7) !important; }
 .project-item.selected .agent-badge { background: rgba(255,255,255,0.22); color: #fff; }
 .project-item.selected .custom-badge { background: rgba(255,255,255,0.22); color: #fff; }
+.project-item.selected .nick-badge { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.8); }
 
-.project-name { font-weight: 500; font-size: 13px; color: #1d1d1f; line-height: 1.3; display: flex; align-items: center; gap: 6px; }
+.project-name-row { display: flex; align-items: center; gap: 6px; }
+.project-name { font-weight: 700; font-size: 13px; color: #1d1d1f; }
 .custom-badge {
     font-size: 9px; font-weight: 600; color: #ff9500;
     background: #fff3e0; padding: 0 5px; border-radius: 4px; line-height: 16px;
+}
+.nick-badge {
+    font-size: 9px; font-weight: 500; color: #86868b;
+    background: #f2f2f7; padding: 0 5px; border-radius: 4px; line-height: 16px;
+}
+.nickname-input {
+    width: 100%; padding: 4px 8px; font-size: 13px; font-weight: 600;
+    border: 1.5px solid #007aff; border-radius: 4px; outline: none;
+    background: #fff; color: #1d1d1f;
 }
 .sidebar-add-btn {
     background: none; border: 1px solid #d1d1d6; border-radius: 4px;
@@ -61,19 +92,12 @@ body {
     flex-shrink: 0;
 }
 .btn-focus-terminal:hover { background: #e5e5ea; }
-.project-path {
-    font-size: 11px; color: #86868b; margin-top: 1px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    max-width: 220px;
-    direction: rtl; text-align: left;
-}
-.project-meta { display: flex; gap: 6px; font-size: 10px; color: #aeaeb2; margin-top: 3px; align-items: center; }
+.project-meta { display: flex; gap: 6px; font-size: 10px; color: #aeaeb2; margin-top: 4px; align-items: center; }
 .agent-badge {
     background-color: #34c759; color: #fff;
     padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600;
     line-height: 16px;
 }
-.meta-sep { color: #d1d1d6; }
 
 /* ── Main panel ── */
 .main-panel { flex: 1; overflow-y: auto; padding: 28px 32px; background-color: #fff; }
@@ -144,7 +168,13 @@ body {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
 }
-.session-card { padding: 10px 14px; margin-bottom: 6px; }
+.session-card {
+    padding: 10px 14px; margin-bottom: 0;
+    border-bottom: 1px solid #e5e5ea; border-radius: 0;
+    box-shadow: none; border-left: none; border-right: none; border-top: none;
+}
+.session-card:first-child { border-radius: 10px 10px 0 0; border-top: 1px solid #e5e5ea; }
+.session-card:last-child { border-radius: 0 0 10px 10px; border-bottom: 1px solid #e5e5ea; }
 
 /* ── Buttons ── */
 .btn {
