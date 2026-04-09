@@ -10,6 +10,7 @@ fn main() {
     let _ = std::process::Command::new("pkill").args(["-f", "island-overlay"]).output();
 
     let cfg = dioxus::desktop::Config::new()
+        .with_close_behaviour(dioxus::desktop::WindowCloseBehaviour::LastWindowHides)
         .with_window(
             dioxus::desktop::WindowBuilder::new()
                 .with_title("AgentDesk")

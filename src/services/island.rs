@@ -8,6 +8,12 @@ fn state_path() -> PathBuf {
 }
 
 fn overlay_binary() -> PathBuf {
+    if let Some(built) = option_env!("AGENTDESK_ISLAND_OVERLAY_PATH").map(PathBuf::from) {
+        if built.exists() {
+            return built;
+        }
+    }
+
     // Look for the binary next to the main executable, then in helpers/
     let exe = std::env::current_exe().unwrap_or_default();
     let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
@@ -26,8 +32,19 @@ fn overlay_binary() -> PathBuf {
 
 /// Write current agent states to the shared JSON file
 pub fn write_island_state(agents: &[Agent]) {
-    let entries: Vec<serde_json::Value> = agents.iter()
+    let mut visible_agents: Vec<&Agent> = agents.iter()
         .filter(|a| !a.is_subagent)
+        .collect();
+
+    visible_agents.sort_by(|left, right| {
+        right
+            .cpu_percent
+            .partial_cmp(&left.cpu_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+
+    let entries: Vec<serde_json::Value> = visible_agents.into_iter()
         .map(|a| {
             let project = a.cwd.as_ref()
                 .and_then(|c| c.file_name())
@@ -39,6 +56,7 @@ pub fn write_island_state(agents: &[Agent]) {
                 "status": match a.status { AgentStatus::Busy => "busy", AgentStatus::Idle => "idle" },
                 "cpu": a.cpu_percent,
                 "project": project,
+                "tty": a.tty,
             })
         })
         .collect();

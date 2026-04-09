@@ -48,7 +48,6 @@ pub fn DynamicIsland(agents: Vec<Agent>) -> Element {
 
                 // Agent details (compact pills)
                 {busy_agents.iter().map(|a| {
-                    let label = a.agent_type.label().to_string();
                     let cpu = a.cpu_percent;
                     let proj = a.cwd.as_ref()
                         .and_then(|c| c.file_name())

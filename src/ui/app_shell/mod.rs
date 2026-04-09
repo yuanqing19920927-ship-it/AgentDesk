@@ -62,55 +62,103 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Periodic agent refresh every 3 seconds + status change notifications
+    // Periodic agent refresh every 3 seconds + debounced status change notifications
+    //
+    // Problem: Agents briefly go idle between subtasks (API calls, tool switches),
+    // causing false "task completed" notifications.
+    // Solution: When Busy→Idle, start a 30s cooldown. Only notify if the agent stays
+    // idle for the full cooldown. During cooldown, report as "busy" to the island.
     use_hook(move || {
         spawn(async move {
-            // Track previous state for change detection
             let mut prev_states: std::collections::HashMap<u32, AgentStatus> = std::collections::HashMap::new();
             let mut prev_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+            // PID → (when it first went idle, agent label, project name)
+            let mut idle_cooldowns: std::collections::HashMap<u32, (std::time::Instant, String, String)> = std::collections::HashMap::new();
+            let idle_threshold = std::time::Duration::from_secs(10);
 
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                let detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
+                let mut detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
                     .await.unwrap_or_default();
 
                 let current_pids: std::collections::HashSet<u32> = detected.iter().map(|a| a.pid).collect();
+                let now = std::time::Instant::now();
 
-                // Check for status changes: Busy -> Idle = task likely completed
                 for agent in &detected {
-                    if let Some(prev) = prev_states.get(&agent.pid) {
-                        if *prev == AgentStatus::Busy && agent.status == AgentStatus::Idle {
+                    let prev = prev_states.get(&agent.pid);
+
+                    match (&agent.status, prev) {
+                        // Busy→Idle: start cooldown (don't notify yet)
+                        (AgentStatus::Idle, Some(AgentStatus::Busy)) => {
                             let label = agent.agent_type.label().to_string();
-                            let cwd_name = agent.cwd.as_ref()
+                            let project = agent.cwd.as_ref()
                                 .and_then(|c| c.file_name())
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
+                            idle_cooldowns.entry(agent.pid)
+                                .or_insert((now, label, project));
+                        }
+                        // Back to Busy: cancel cooldown (was just a subtask gap)
+                        (AgentStatus::Busy, _) => {
+                            idle_cooldowns.remove(&agent.pid);
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Check cooldowns: notify if idle for the full threshold
+                let expired: Vec<u32> = idle_cooldowns.iter()
+                    .filter(|(pid, (since, _, _))| {
+                        now.duration_since(*since) >= idle_threshold
+                            && current_pids.contains(pid)
+                    })
+                    .map(|(pid, _)| *pid)
+                    .collect();
+
+                for pid in expired {
+                    if let Some((_, label, project)) = idle_cooldowns.remove(&pid) {
+                        notifier::send_notification(
+                            "AgentDesk",
+                            &format!("{} 任务完成 ({})", label, project),
+                        );
+                    }
+                }
+
+                // Agents that disappeared while in cooldown — they exited mid-task
+                let disappeared: Vec<u32> = prev_pids.iter()
+                    .filter(|pid| !current_pids.contains(pid))
+                    .copied()
+                    .collect();
+
+                for pid in disappeared {
+                    idle_cooldowns.remove(&pid);
+                    if let Some(prev_status) = prev_states.get(&pid) {
+                        if *prev_status == AgentStatus::Busy {
                             notifier::send_notification(
                                 "AgentDesk",
-                                &format!("{} 任务完成 ({})", label, cwd_name),
+                                &format!("Agent (PID {}) 已退出", pid),
                             );
                         }
                     }
                 }
 
-                // Check for agents that disappeared (process exited)
-                for pid in &prev_pids {
-                    if !current_pids.contains(pid) {
-                        if let Some(prev_status) = prev_states.get(pid) {
-                            if *prev_status == AgentStatus::Busy {
-                                notifier::send_notification(
-                                    "AgentDesk",
-                                    &format!("Agent (PID {}) 已退出", pid),
-                                );
-                            }
-                        }
+                // During cooldown, override status to Busy for island display
+                for agent in &mut detected {
+                    if idle_cooldowns.contains_key(&agent.pid) {
+                        agent.status = AgentStatus::Busy;
                     }
                 }
 
-                // Update tracking state
+                // Update tracking state (use original detected status, not overridden)
                 prev_states.clear();
                 for agent in &detected {
-                    prev_states.insert(agent.pid, agent.status.clone());
+                    // Store the real status (before cooldown override) for next-cycle comparison
+                    let real_status = if idle_cooldowns.contains_key(&agent.pid) {
+                        AgentStatus::Idle
+                    } else {
+                        agent.status.clone()
+                    };
+                    prev_states.insert(agent.pid, real_status);
                 }
                 prev_pids = current_pids;
 
