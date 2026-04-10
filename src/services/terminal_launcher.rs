@@ -1,6 +1,53 @@
 use crate::models::{AgentType, PermissionMode};
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+/// Launch an Agent with an optional initial prompt.
+///
+/// If `initial_prompt` is `Some`, the prompt is copied to the system
+/// clipboard after the terminal window is opened, so the user can paste it
+/// with ⌘V once the REPL is ready. We intentionally avoid AppleScript
+/// `write text` injection for free-form prompts — the design doc (module 4)
+/// calls out the REPL race condition and defers reliable injection to P3.
+pub fn launch_agent_with_prompt(
+    project_dir: &Path,
+    agent_type: &AgentType,
+    permission_mode: &PermissionMode,
+    initial_prompt: Option<&str>,
+) -> Result<(), String> {
+    launch_agent(project_dir, agent_type, permission_mode)?;
+    if let Some(prompt) = initial_prompt {
+        let trimmed = prompt.trim();
+        if !trimmed.is_empty() {
+            if let Err(e) = copy_to_clipboard(trimmed) {
+                eprintln!("[AgentDesk] clipboard copy failed: {}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy a string to the macOS clipboard via `pbcopy`. We pipe via stdin
+/// (not argv) so arbitrary prompt content cannot affect the command line.
+fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    let mut child = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to spawn pbcopy: {}", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("failed to write to pbcopy: {}", e))?;
+    }
+    let status = child
+        .wait()
+        .map_err(|e| format!("pbcopy wait failed: {}", e))?;
+    if !status.success() {
+        return Err(format!("pbcopy exited with {}", status));
+    }
+    Ok(())
+}
 
 pub fn launch_agent(
     project_dir: &Path,

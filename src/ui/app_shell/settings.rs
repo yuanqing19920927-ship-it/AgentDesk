@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
-use crate::services::{config, project_manager};
+use chrono::Local;
+use crate::models::{NotificationEventType, NotificationLevel};
+use crate::services::{config, notifier, project_manager};
+use crate::ui::icons;
 
 #[component]
 pub fn SettingsPanel(
@@ -11,14 +14,21 @@ pub fn SettingsPanel(
     let mut new_group_name = use_signal(String::new);
     let mut error_msg = use_signal(|| None::<String>);
     let mut group_error = use_signal(|| None::<String>);
+    let mut notification_rules = use_signal(notifier::load_rules);
+    let mut notification_history = use_signal(notifier::load_history);
+    let mut notification_error = use_signal(|| None::<String>);
 
     rsx! {
         div {
-            div { class: "page-header",
-                div { class: "page-header-info", h1 { "设置" } }
-                div { class: "page-header-actions",
-                    button { class: "btn btn-ghost", onclick: move |_| on_close.call(()), "返回" }
-                }
+            // ── Hero ──
+            div { class: "page-hero",
+                div { class: "icon-tile icon-tile-lg tile-graphite", dangerous_inner_html: icons::GEAR }
+                div { class: "hero-title", "设置" }
+                div { class: "hero-desc", "管理扫描目录、项目分组、通知规则与勿扰时段。" }
+            }
+
+            div { class: "hero-toolbar",
+                button { class: "btn btn-ghost", onclick: move |_| on_close.call(()), "返回" }
             }
 
             // ── Scan directories ──
@@ -207,6 +217,182 @@ pub fn SettingsPanel(
                 }
                 if let Some(ref e) = group_error() {
                     div { style: "color: #ff3b30; font-size: 12px; margin-top: 6px;", "{e}" }
+                }
+            }
+
+            // ── Notifications ──
+            {
+                let rules = notification_rules();
+                let levels = [
+                    NotificationLevel::All,
+                    NotificationLevel::ErrorsOnly,
+                    NotificationLevel::Mute,
+                ];
+                let current_level_idx = levels.iter().position(|l| *l == rules.global_level).unwrap_or(0);
+                let quiet = rules.quiet_hours;
+                let quiet_start_h = quiet.start_min / 60;
+                let quiet_start_m = quiet.start_min % 60;
+                let quiet_end_h = quiet.end_min / 60;
+                let quiet_end_m = quiet.end_min % 60;
+                let history = notification_history();
+                let unread = history.iter().filter(|e| !e.read).count();
+                let total = history.len();
+
+                rsx! {
+                    div { class: "section",
+                        div { class: "section-label", "通知" }
+                        div { class: "grouped-card",
+                            div { class: "grouped-row",
+                                div { class: "row-content",
+                                    div { class: "row-label-bold", "全局通知级别" }
+                                    div { class: "row-sub", "控制 Agent 完成、退出等事件的默认行为" }
+                                }
+                                select {
+                                    class: "form-select",
+                                    onchange: move |e| {
+                                        if let Ok(i) = e.value().parse::<usize>() {
+                                            let levels = [
+                                                NotificationLevel::All,
+                                                NotificationLevel::ErrorsOnly,
+                                                NotificationLevel::Mute,
+                                            ];
+                                            if let Some(l) = levels.get(i) {
+                                                let mut r = notification_rules();
+                                                r.global_level = *l;
+                                                match notifier::save_rules(&r) {
+                                                    Ok(()) => {
+                                                        notification_rules.set(r);
+                                                        notification_error.set(None);
+                                                    }
+                                                    Err(err) => notification_error.set(Some(err)),
+                                                }
+                                            }
+                                        }
+                                    },
+                                    for (i, l) in levels.iter().enumerate() {
+                                        option { value: "{i}", selected: current_level_idx == i, "{l.label()}" }
+                                    }
+                                }
+                            }
+                            {NotificationEventType::all().iter().map(|t| {
+                                let t = *t;
+                                let enabled = rules.event_enabled(t);
+                                rsx! {
+                                    div { class: "grouped-row",
+                                        div { class: "row-content",
+                                            div { class: "row-label", "{t.label()}" }
+                                        }
+                                        label { style: "display: flex; align-items: center; gap: 6px; cursor: pointer;",
+                                            input {
+                                                r#type: "checkbox",
+                                                checked: enabled,
+                                                onchange: move |e| {
+                                                    let mut r = notification_rules();
+                                                    r.set_event_enabled(t, e.checked());
+                                                    match notifier::save_rules(&r) {
+                                                        Ok(()) => {
+                                                            notification_rules.set(r);
+                                                            notification_error.set(None);
+                                                        }
+                                                        Err(err) => notification_error.set(Some(err)),
+                                                    }
+                                                },
+                                            }
+                                            span { style: "font-size: 12px; color: #86868b;", if enabled { "启用" } else { "禁用" } }
+                                        }
+                                    }
+                                }
+                            })}
+                            div { class: "grouped-row",
+                                div { class: "row-content",
+                                    div { class: "row-label-bold", "勿扰时段" }
+                                    div { class: "row-sub",
+                                        "{quiet_start_h:02}:{quiet_start_m:02} — {quiet_end_h:02}:{quiet_end_m:02}（时段内仅错误可通过）"
+                                    }
+                                }
+                                label { style: "display: flex; align-items: center; gap: 6px; cursor: pointer;",
+                                    input {
+                                        r#type: "checkbox",
+                                        checked: quiet.enabled,
+                                        onchange: move |e| {
+                                            let mut r = notification_rules();
+                                            r.quiet_hours.enabled = e.checked();
+                                            if r.quiet_hours.start_min == r.quiet_hours.end_min {
+                                                r.quiet_hours.start_min = 22 * 60;
+                                                r.quiet_hours.end_min = 8 * 60;
+                                            }
+                                            match notifier::save_rules(&r) {
+                                                Ok(()) => {
+                                                    notification_rules.set(r);
+                                                    notification_error.set(None);
+                                                }
+                                                Err(err) => notification_error.set(Some(err)),
+                                            }
+                                        },
+                                    }
+                                    span { style: "font-size: 12px; color: #86868b;", if quiet.enabled { "启用" } else { "禁用" } }
+                                }
+                            }
+                        }
+
+                        if let Some(err) = notification_error() {
+                            div { style: "color: #ff3b30; font-size: 12px; margin-top: 6px;", "{err}" }
+                        }
+
+                        div { class: "section-label", style: "margin-top: 14px;",
+                            "通知历史 ({total})"
+                            if unread > 0 { span { style: "margin-left: 8px; color: #ff3b30;", "· {unread} 条未读" } }
+                        }
+                        div { class: "grouped-card",
+                            if history.is_empty() {
+                                div { class: "grouped-row",
+                                    div { class: "row-label", style: "color: #86868b;", "暂无通知" }
+                                }
+                            } else {
+                                {history.iter().rev().take(20).map(|ev| {
+                                    let ts = ev.timestamp.with_timezone(&Local).format("%m-%d %H:%M").to_string();
+                                    let type_label = ev.event_type.label();
+                                    let title = ev.title.clone();
+                                    let message = ev.message.clone();
+                                    let suppressed = ev.suppressed;
+                                    rsx! {
+                                        div { class: "grouped-row",
+                                            div { class: "row-content",
+                                                div { style: "display: flex; gap: 8px; align-items: center;",
+                                                    span { class: "row-label-bold", "{title}" }
+                                                    span { class: "nick-badge", "{type_label}" }
+                                                    if suppressed { span { class: "custom-badge", "已过滤" } }
+                                                }
+                                                div { class: "row-sub", "{ts} · {message}" }
+                                            }
+                                        }
+                                    }
+                                })}
+                            }
+                        }
+                        if !history.is_empty() {
+                            div { style: "display: flex; gap: 8px; margin-top: 8px;",
+                                button {
+                                    class: "btn-ghost",
+                                    style: "font-size: 12px; padding: 4px 10px;",
+                                    onclick: move |_| {
+                                        notifier::mark_all_read();
+                                        notification_history.set(notifier::load_history());
+                                    },
+                                    "全部标记已读"
+                                }
+                                button {
+                                    class: "btn-remove",
+                                    style: "font-size: 12px;",
+                                    onclick: move |_| {
+                                        let _ = notifier::clear_history();
+                                        notification_history.set(notifier::load_history());
+                                    },
+                                    "清空历史"
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

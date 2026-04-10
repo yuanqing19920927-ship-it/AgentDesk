@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use crate::models::Project;
 use crate::services::{config, project_manager};
+use crate::ui::icons;
 
 const ICON_COLORS: &[&str] = &["", "orange", "purple", "pink", "teal"];
 fn icon_color(idx: usize) -> &'static str { ICON_COLORS[idx % ICON_COLORS.len()] }
@@ -14,6 +15,7 @@ pub fn Sidebar(
     selected_idx: Option<usize>,
     on_select: EventHandler<usize>,
     on_settings: EventHandler<()>,
+    on_templates: EventHandler<()>,
 ) -> Element {
     let mut nicknames = use_signal(|| project_manager::load_nicknames());
     let mut editing_idx = use_signal(|| None::<usize>);
@@ -77,7 +79,7 @@ pub fn Sidebar(
                         div { class: "{cls}",
                             onclick: move |_| on_select.call(hi),
                             oncontextmenu: move |e| { e.prevent_default(); let c = e.page_coordinates(); ctx_menu.set(Some((hi, c.x, c.y))); },
-                            div { class: "home-icon-box", "🏠" }
+                            div { class: "icon-tile icon-tile-md tile-blue project-tile-3d", dangerous_inner_html: icons::HOME }
                             div { class: "home-info",
                                 div { class: "home-name", "{display}" }
                                 div { class: "project-meta",
@@ -116,7 +118,7 @@ pub fn Sidebar(
                                     let rk = rs.clone(); let rb = rs.clone();
                                     let ic = initial_char(&dn);
                                     let cc = icon_color(idx);
-                                    let icon_cls = if cc.is_empty() { "project-icon-box".to_string() } else { format!("project-icon-box {}", cc) };
+                                    let icon_cls = if cc.is_empty() { "project-icon-box project-tile-3d".to_string() } else { format!("project-icon-box project-tile-3d {}", cc) };
 
                                     rsx! {
                                         div {
@@ -158,7 +160,14 @@ pub fn Sidebar(
             }
 
             div { class: "sidebar-footer",
-                div { class: "sidebar-footer-btn", onclick: move |_| on_settings.call(()), "⚙️  设置" }
+                div { class: "sidebar-footer-btn", onclick: move |_| on_templates.call(()),
+                    div { class: "icon-tile icon-tile-sm tile-indigo", dangerous_inner_html: icons::DOC_STACK }
+                    span { "模板" }
+                }
+                div { class: "sidebar-footer-btn", onclick: move |_| on_settings.call(()),
+                    div { class: "icon-tile icon-tile-sm tile-graphite", dangerous_inner_html: icons::GEAR }
+                    span { "设置" }
+                }
             }
         }
 

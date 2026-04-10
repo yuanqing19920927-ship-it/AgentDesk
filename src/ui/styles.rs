@@ -1,27 +1,124 @@
 pub const GLOBAL_CSS: &str = r#"
 * { margin: 0; padding: 0; box-sizing: border-box; }
-* { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
     background-color: #f5f5f7; color: #1d1d1f; font-size: 13px;
     -webkit-font-smoothing: antialiased; line-height: 1.45;
 }
-.app-container { display: flex; height: 100vh; width: 100vw; }
+.app-container {
+    display: flex; height: 100vh; width: 100vw;
+    /* Warm neutral window background. Both the sidebar (frosted) and the
+       main panel sit on top of this; there is no hard divider between
+       them — each module floats as its own layer. */
+    background: #ececef;
+}
+/* Draggable strip at the very top so users can grab anywhere along the
+   titlebar area (traffic lights aside) to move the window. 28px matches
+   the macOS titlebar height. We avoid the 72px reserved for the traffic
+   lights on the left edge. Dragging is implemented via onmousedown ->
+   dioxus::desktop::window().drag() (wry/WKWebView does not honor CSS
+   -webkit-app-region). */
+.titlebar-drag {
+    position: fixed; top: 0; left: 72px; right: 0; height: 28px;
+    z-index: 9999;
+    background: transparent;
+    cursor: default;
+}
+
+/* ══════════════════════════════
+   Scrollbars — macOS overlay style
+   ══════════════════════════════ */
+::-webkit-scrollbar { width: 11px; height: 11px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; border: none; }
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.18);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 10px;
+    min-height: 40px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.38);
+    background-clip: content-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ══════════════════════════════
+   Icon tiles — macOS Settings style
+   ══════════════════════════════ */
+.icon-tile {
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; flex-shrink: 0;
+    box-shadow: 0 0.5px 0 rgba(255,255,255,0.35) inset,
+                0 0.5px 1.5px rgba(0,0,0,0.1);
+}
+.icon-tile svg { display: block; }
+.icon-tile-xs { width: 18px; height: 18px; border-radius: 4px; }
+.icon-tile-sm { width: 22px; height: 22px; border-radius: 5px; }
+.icon-tile-md { width: 28px; height: 28px; border-radius: 6px; }
+.icon-tile-lg { width: 56px; height: 56px; border-radius: 13px;
+    box-shadow: 0 0.5px 0 rgba(255,255,255,0.35) inset,
+                0 2px 6px rgba(0,0,0,0.12); }
+
+.tile-gray    { background: linear-gradient(180deg, #a1a1a6, #6e6e73); }
+.tile-graphite{ background: linear-gradient(180deg, #8e8e93, #48484a); }
+.tile-blue    { background: linear-gradient(180deg, #5ac8fa, #0a84ff); }
+.tile-indigo  { background: linear-gradient(180deg, #7c7cf0, #5e5ce6); }
+.tile-purple  { background: linear-gradient(180deg, #d67dff, #bf5af2); }
+.tile-pink    { background: linear-gradient(180deg, #ff6b8a, #ff2d55); }
+.tile-red     { background: linear-gradient(180deg, #ff6b5e, #ff3b30); }
+.tile-orange  { background: linear-gradient(180deg, #ffb340, #ff9500); }
+.tile-yellow  { background: linear-gradient(180deg, #ffd60a, #ffcc00); color: #6b5300; }
+.tile-green   { background: linear-gradient(180deg, #4cd964, #30b653); }
+.tile-teal    { background: linear-gradient(180deg, #64d2ff, #30a7c0); }
+
+/* ══════════════════════════════
+   Page hero (System Settings-style card)
+   ══════════════════════════════ */
+.page-hero {
+    background: #fff;
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.04);
+    padding: 28px 24px 24px; margin-bottom: 20px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.page-hero .hero-title {
+    font-size: 22px; font-weight: 700; color: #1d1d1f;
+    margin: 14px 0 6px; letter-spacing: -0.2px;
+}
+.page-hero .hero-desc {
+    font-size: 12px; color: #86868b; line-height: 1.55;
+    max-width: 560px;
+}
+.hero-toolbar {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-bottom: 16px;
+}
+
+/* Grouped row with leading icon tile: gap between icon and content */
+.grouped-row > .icon-tile { margin-right: 12px; }
 
 /* ══════════════════════════════
    SIDEBAR — macOS Settings style
+   Frosted vibrancy panel that sits on the window background. No hard
+   border on the right edge — the tint difference + backdrop blur does
+   all the separation work (like the real System Settings sidebar).
    ══════════════════════════════ */
 .sidebar {
     width: 240px; min-width: 240px;
-    background-color: rgba(244, 244, 246, 0.95);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border-right: 0.5px solid #c7c7cc;
+    background: linear-gradient(180deg,
+        rgba(244, 244, 248, 0.62) 0%,
+        rgba(236, 236, 241, 0.68) 100%);
+    backdrop-filter: blur(48px) saturate(180%);
+    -webkit-backdrop-filter: blur(48px) saturate(180%);
     display: flex; flex-direction: column;
-    padding: 10px 0 0;
+    /* Reserve space for the traffic lights (top) so content starts below them. */
+    padding: 38px 0 0;
     user-select: none;
 }
 .sidebar-section-label {
-    font-size: 11px; font-weight: 600; color: #86868b;
+    font-size: 13px; font-weight: 700; color: #6e6e73;
     padding: 16px 20px 6px; letter-spacing: 0.2px;
 }
 
@@ -37,14 +134,7 @@ body {
 .home-item.selected .home-name,
 .home-item.selected .project-meta,
 .home-item.selected .project-meta span { color: #fff !important; }
-.home-item.selected .home-icon-box { background: rgba(255,255,255,0.2); }
 .home-item.selected .agent-badge { background: rgba(255,255,255,0.25); }
-.home-icon-box {
-    width: 28px; height: 28px; border-radius: 6px;
-    background: linear-gradient(135deg, #5ac8fa, #007aff);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; flex-shrink: 0;
-}
 .home-info { flex: 1; min-width: 0; }
 .home-name { font-weight: 600; font-size: 13px; color: #1d1d1f; }
 
@@ -67,15 +157,43 @@ body {
 .project-item.selected .nick-badge { background: rgba(255,255,255,0.2); color: #fff; }
 
 .project-icon-box {
-    width: 28px; height: 28px; border-radius: 6px;
-    background: linear-gradient(135deg, #34c759, #30d158);
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(180deg, #4cd964, #30b653);
     display: flex; align-items: center; justify-content: center;
     font-size: 13px; flex-shrink: 0; color: #fff; font-weight: 700;
+    letter-spacing: -0.3px;
 }
-.project-icon-box.orange { background: linear-gradient(135deg, #ff9500, #ff6b00); }
-.project-icon-box.purple { background: linear-gradient(135deg, #af52de, #5856d6); }
-.project-icon-box.pink { background: linear-gradient(135deg, #ff2d55, #ff375f); }
-.project-icon-box.teal { background: linear-gradient(135deg, #5ac8fa, #64d2ff); }
+.project-icon-box.orange { background: linear-gradient(180deg, #ffb340, #ff8a00); }
+.project-icon-box.purple { background: linear-gradient(180deg, #c77dff, #8e55d6); }
+.project-icon-box.pink    { background: linear-gradient(180deg, #ff6b8a, #ff2d55); }
+.project-icon-box.teal    { background: linear-gradient(180deg, #64d2ff, #30a7c0); }
+
+/* Stereoscopic "glossy tile" treatment applied to sidebar project + home
+   icons. Layers: (1) inner top highlight for the glass shine, (2) inner
+   bottom shadow for depth, (3) outer hairline ring, (4) outer drop shadow. */
+.project-tile-3d {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+        0 0 0 0.5px rgba(0, 0, 0, 0.14),
+        0 1px 2px rgba(0, 0, 0, 0.12),
+        0 2px 5px -1px rgba(0, 0, 0, 0.10);
+    position: relative;
+    overflow: hidden;
+}
+/* Subtle specular highlight across the top edge */
+.project-tile-3d::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 48%;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.28) 0%,
+        rgba(255, 255, 255, 0.04) 100%);
+    pointer-events: none;
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+.project-tile-3d > * { position: relative; z-index: 1; }
 .project-item-info { flex: 1; min-width: 0; }
 .project-name-row { display: flex; align-items: center; gap: 5px; }
 .project-name { font-weight: 600; font-size: 13px; color: #1d1d1f; }
@@ -106,7 +224,14 @@ body {
 /* ══════════════════════════════
    MAIN PANEL — right side
    ══════════════════════════════ */
-.main-panel { flex: 1; overflow-y: auto; padding: 28px 36px; background: #fff; }
+.main-panel {
+    flex: 1; overflow-y: auto;
+    padding: 48px 36px 28px;
+    /* Transparent: inherits the shared window background from .app-container
+       so the sidebar and content area appear to float on the same surface
+       without a hard divider between them. */
+    background: transparent;
+}
 .page-header { margin-bottom: 28px; }
 .page-header-info h1 { font-size: 26px; font-weight: 700; color: #1d1d1f; margin-bottom: 6px; }
 .page-header-info .path { font-size: 11px; color: #86868b; word-break: break-all; }
@@ -119,10 +244,17 @@ body {
     padding: 0 0 8px; letter-spacing: 0.1px;
 }
 
-/* Grouped card — rounded container for rows */
+/* Grouped card — rounded container for rows. Floats above the window
+   background with a soft elevation so the tinted sidebar and the card
+   both read as separate layers. */
 .grouped-card {
-    background: #fff; border: 0.5px solid #d1d1d6;
-    border-radius: 10px; overflow: hidden;
+    background: #fff;
+    border: 0.5px solid rgba(0, 0, 0, 0.06);
+    border-radius: 12px; overflow: hidden;
+    box-shadow:
+        0 0 0 0.5px rgba(0, 0, 0, 0.04),
+        0 1px 3px rgba(0, 0, 0, 0.05),
+        0 6px 16px -6px rgba(0, 0, 0, 0.06);
 }
 .grouped-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -324,10 +456,71 @@ body {
 .msg-bubble { margin-bottom: 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .msg-user { background: #007aff0a; border-left: 3px solid #007aff; }
 .msg-assistant { background: #f2f2f7; border-left: 3px solid #34c759; }
-.msg-header { display: flex; justify-content: space-between; margin-bottom: 3px; }
+/* Kind-specific accents. More muted than role colors so that tool
+   activity doesn't dominate the view. */
+.msg-kind-thinking { background: #fff7e6; border-left: 3px solid #ffb340; }
+.msg-kind-tool-use { background: #f2edff; border-left: 3px solid #af52de; }
+.msg-kind-tool-result { background: #ecfdf5; border-left: 3px solid #30b653; }
+.msg-header { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
 .msg-role { font-weight: 600; font-size: 11px; color: #3a3a3c; }
-.msg-time { font-size: 10px; color: #aeaeb2; }
+.msg-kind-badge {
+    font-size: 9px; font-weight: 600; color: #6e6e73;
+    background: rgba(0, 0, 0, 0.06); padding: 1px 6px; border-radius: 4px;
+}
+.msg-tool-name {
+    font-size: 10px; font-weight: 600; color: #5856d6;
+    background: #eeedff; padding: 1px 6px; border-radius: 4px;
+}
+.msg-time { font-size: 10px; color: #aeaeb2; margin-left: auto; }
 .msg-content { font-size: 12px; color: #1d1d1f; white-space: pre-wrap; word-break: break-word; }
+.msg-code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: rgba(0, 0, 0, 0.04);
+    padding: 6px 8px; border-radius: 5px;
+    max-height: 240px; overflow: auto;
+    margin: 2px 0 0;
+}
+
+/* Log viewer filter toolbar */
+.log-filter-bar {
+    display: flex; gap: 6px; align-items: center;
+    padding: 8px 0 10px; flex-wrap: wrap;
+}
+.log-filter-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #3a3a3c;
+    background: #fff; border: 0.5px solid rgba(0, 0, 0, 0.08);
+    padding: 3px 8px; border-radius: 10px;
+    cursor: pointer; user-select: none;
+}
+.log-filter-chip input[type="checkbox"] {
+    margin: 0; width: 11px; height: 11px;
+}
+
+/* ── Health dashboard (Module 11) ── */
+.health-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        inset 0 -1px 1px rgba(0, 0, 0, 0.20),
+        0 0 0 0.5px rgba(0, 0, 0, 0.12),
+        0 1px 2px rgba(0, 0, 0, 0.14);
+}
+.health-dot.health-green  { background: radial-gradient(circle at 30% 30%, #5edc7f, #30b653); }
+.health-dot.health-yellow { background: radial-gradient(circle at 30% 30%, #ffd95a, #f0a020); }
+.health-dot.health-red    { background: radial-gradient(circle at 30% 30%, #ff7b7b, #d93025); }
+.health-chip {
+    display: inline-flex; align-items: center;
+    font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 9px;
+    margin-left: auto; flex-shrink: 0;
+    letter-spacing: 0.02em;
+}
+.health-chip.health-green  { background: #e6f8ec; color: #1f7a3a; border: 0.5px solid #b7e6c6; }
+.health-chip.health-yellow { background: #fff6e0; color: #8a5a00; border: 0.5px solid #f0dba0; }
+.health-chip.health-red    { background: #fde8e8; color: #9a1d1d; border: 0.5px solid #f0b8b8; }
+.health-hint { color: #8a8a8e; font-style: normal; }
 
 /* Grouped row variant for sessions */
 .grouped-row.session-expanded { background: #f9f9fb; }
@@ -355,6 +548,11 @@ body {
     width: 100%; padding: 6px 10px;
     background: #fff; border: 0.5px solid #d1d1d6; border-radius: 6px;
     color: #1d1d1f; font-size: 13px; -webkit-appearance: menulist;
+}
+/* Inside a grouped-row the select is a trailing control, not a full-width form field.
+   Give it a fixed width so the left-hand row-content keeps its space. */
+.grouped-row .form-select {
+    width: auto; min-width: 140px; max-width: 220px; flex-shrink: 0;
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .btn-ghost {
@@ -388,15 +586,17 @@ body {
 
 /* ── Sidebar footer ── */
 .sidebar-footer {
-    border-top: 0.5px solid #d1d1d6; padding: 8px 10px;
+    border-top: 0.5px solid #d1d1d6; padding: 8px 10px 10px;
     flex-shrink: 0;
 }
 .sidebar-footer-btn {
-    display: flex; align-items: center; gap: 6px;
-    padding: 7px 12px; border-radius: 8px; cursor: pointer;
-    font-size: 13px; color: #86868b; transition: background 0.1s;
+    display: flex; align-items: center; gap: 9px;
+    padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: #1d1d1f;
+    transition: background 0.1s;
+    margin-bottom: 1px;
 }
-.sidebar-footer-btn:hover { background: rgba(0,0,0,0.04); }
+.sidebar-footer-btn:hover { background: rgba(0,0,0,0.05); }
 
 /* ── Remove button in settings ── */
 .btn-remove {

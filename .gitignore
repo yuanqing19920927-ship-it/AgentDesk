@@ -2,3 +2,8 @@
 .DS_Store
 *.dmg
 helpers/island-overlay
+helpers/island-overlay-arm64
+helpers/island-overlay-x86_64
+target/release/bundle/
+target/release/dmg-staging/
+.agentdesk/

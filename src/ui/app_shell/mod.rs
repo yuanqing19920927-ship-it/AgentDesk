@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::models::{Agent, Project, SessionSummary};
+use crate::models::{Agent, NotificationEventType, Project, SessionSummary};
 use crate::models::AgentStatus;
 use crate::services::{agent_detector, island, notifier, project_manager, project_scanner, session_reader};
 use crate::ui::styles::GLOBAL_CSS;
@@ -9,14 +9,19 @@ use crate::ui::styles::GLOBAL_CSS;
 mod sidebar;
 mod dashboard;
 mod dynamic_island;
+mod home_dashboard;
+mod memory_view;
 mod new_agent_dialog;
 mod settings;
+mod templates;
 
 use sidebar::Sidebar;
 use dashboard::Dashboard;
+use home_dashboard::HomeDashboard;
 // dynamic_island module kept for potential future in-app use
 use new_agent_dialog::NewAgentDialog;
 use settings::SettingsPanel;
+use templates::TemplatesPanel;
 
 #[component]
 pub fn AppShell() -> Element {
@@ -27,6 +32,7 @@ pub fn AppShell() -> Element {
     let session_load_gen = use_hook(|| Arc::new(AtomicU64::new(0)));
     let mut show_new_agent = use_signal(|| false);
     let mut show_settings = use_signal(|| false);
+    let mut show_templates = use_signal(|| false);
 
     // Load projects (auto-discovered + custom)
     let load_all_projects = move || {
@@ -117,9 +123,15 @@ pub fn AppShell() -> Element {
 
                 for pid in expired {
                     if let Some((_, label, project)) = idle_cooldowns.remove(&pid) {
-                        notifier::send_notification(
+                        let project_root = detected
+                            .iter()
+                            .find(|a| a.pid == pid)
+                            .and_then(|a| a.project_root.clone());
+                        notifier::send_event(
+                            NotificationEventType::AgentCompleted,
                             "AgentDesk",
                             &format!("{} 任务完成 ({})", label, project),
+                            project_root.as_deref(),
                         );
                     }
                 }
@@ -134,9 +146,11 @@ pub fn AppShell() -> Element {
                     idle_cooldowns.remove(&pid);
                     if let Some(prev_status) = prev_states.get(&pid) {
                         if *prev_status == AgentStatus::Busy {
-                            notifier::send_notification(
+                            notifier::send_event(
+                                NotificationEventType::AgentExited,
                                 "AgentDesk",
                                 &format!("Agent (PID {}) 已退出", pid),
+                                None,
                             );
                         }
                     }
@@ -247,12 +261,32 @@ pub fn AppShell() -> Element {
 
     rsx! {
         style { {GLOBAL_CSS} }
+        // Invisible strip along the top for dragging the window by the titlebar area.
+        // wry/WKWebView on macOS does NOT support CSS `-webkit-app-region: drag`,
+        // so we listen for mousedown and call the programmatic drag() API instead.
+        div {
+            class: "titlebar-drag",
+            onmousedown: move |_| { dioxus::desktop::window().drag(); },
+        }
         div { class: "app-container",
             Sidebar {
                 projects: projects_with_agents.clone(),
-                selected_idx: if show_settings() { None } else { selected_idx() },
-                on_select: move |i: usize| { show_settings.set(false); selected_idx.set(Some(i)); },
-                on_settings: move |_| { show_settings.set(true); selected_idx.set(None); },
+                selected_idx: if show_settings() || show_templates() { None } else { selected_idx() },
+                on_select: move |i: usize| {
+                    show_settings.set(false);
+                    show_templates.set(false);
+                    selected_idx.set(Some(i));
+                },
+                on_settings: move |_| {
+                    show_templates.set(false);
+                    show_settings.set(true);
+                    selected_idx.set(None);
+                },
+                on_templates: move |_| {
+                    show_settings.set(false);
+                    show_templates.set(true);
+                    selected_idx.set(None);
+                },
             }
             div { class: "main-panel",
                     if show_settings() {
@@ -260,12 +294,38 @@ pub fn AppShell() -> Element {
                             on_close: move |_| show_settings.set(false),
                             on_refresh: move |_| load_all_projects(),
                         }
+                    } else if show_templates() {
+                        TemplatesPanel {
+                            on_close: move |_| show_templates.set(false),
+                        }
                     } else if let Some(project) = selected_project.clone() {
-                        Dashboard {
-                            project: project.clone(),
-                            agents: project_agents.clone(),
-                            sessions: sessions().clone(),
-                            on_new_agent: move |_| show_new_agent.set(true),
+                        {
+                            let home_dir = dirs::home_dir().unwrap_or_default();
+                            let is_home = project.root == home_dir;
+                            let key_str = project.root.display().to_string();
+                            if is_home {
+                                rsx! {
+                                    HomeDashboard {
+                                        key: "{key_str}",
+                                        projects: projects_with_agents.clone(),
+                                        agents: agents().clone(),
+                                    }
+                                }
+                            } else {
+                                rsx! {
+                                    Dashboard {
+                                        // Keying on project root forces a full
+                                        // remount on project switch so that
+                                        // use_hook-driven signals (cost, health,
+                                        // audit) recompute against the new root.
+                                        key: "{key_str}",
+                                        project: project.clone(),
+                                        agents: project_agents.clone(),
+                                        sessions: sessions().clone(),
+                                        on_new_agent: move |_| show_new_agent.set(true),
+                                    }
+                                }
+                            }
                         }
                     } else {
                         div { class: "empty-state",

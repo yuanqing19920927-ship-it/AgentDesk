@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::desktop::tao::platform::macos::WindowBuilderExtMacOS;
 
 mod models;
 mod services;
@@ -13,9 +14,14 @@ fn main() {
         .with_close_behaviour(dioxus::desktop::WindowCloseBehaviour::LastWindowHides)
         .with_window(
             dioxus::desktop::WindowBuilder::new()
-                .with_title("AgentDesk")
+                .with_title("")
                 .with_inner_size(dioxus::desktop::LogicalSize::new(1100.0, 720.0))
-                .with_always_on_top(false),
+                .with_always_on_top(false)
+                // macOS-style hidden title bar: traffic lights float over the
+                // content, sidebar extends under them. Matches System Settings.
+                .with_titlebar_transparent(true)
+                .with_fullsize_content_view(true)
+                .with_title_hidden(true),
         );
 
     let _cleanup = IslandCleanup;

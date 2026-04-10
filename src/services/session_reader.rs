@@ -1,4 +1,4 @@
-use crate::models::{SessionMessage, SessionRecord, SessionSummary};
+use crate::models::{SessionRecord, SessionSummary};
 use chrono::DateTime;
 use std::fs;
 use std::path::Path;
@@ -77,64 +77,10 @@ pub fn read_all_sessions(claude_project_dir: &Path) -> Vec<SessionSummary> {
     summaries
 }
 
-/// Load all messages from a session JSONL file for detail view
-pub fn read_session_messages(claude_project_dir: &Path, session_id: &str) -> Vec<SessionMessage> {
-    let jsonl_path = claude_project_dir.join(format!("{}.jsonl", session_id));
-    let content = match fs::read_to_string(&jsonl_path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut messages = Vec::new();
-    for line in content.lines() {
-        let record: SessionRecord = match serde_json::from_str(line) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-
-        match record.record_type.as_str() {
-            "user" | "assistant" => {
-                let text = extract_full_text(&record).unwrap_or_default();
-                if text.is_empty() { continue; }
-                let timestamp = record.timestamp.as_ref().and_then(|ts| {
-                    DateTime::parse_from_rfc3339(ts).ok().map(|dt| dt.with_timezone(&chrono::Utc))
-                });
-                messages.push(SessionMessage {
-                    role: record.record_type.clone(),
-                    content: text,
-                    timestamp,
-                });
-            }
-            _ => {}
-        }
-    }
-    messages
-}
-
-/// Extract full text content from a message (not truncated)
-fn extract_full_text(record: &SessionRecord) -> Option<String> {
-    let message = record.message.as_ref()?;
-    if let Some(s) = message.as_str() {
-        return Some(s.to_string());
-    }
-    if let Some(content) = message.get("content") {
-        if let Some(s) = content.as_str() {
-            return Some(s.to_string());
-        }
-        if let Some(arr) = content.as_array() {
-            let mut parts = Vec::new();
-            for item in arr {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    parts.push(text.to_string());
-                }
-            }
-            if !parts.is_empty() {
-                return Some(parts.join("\n"));
-            }
-        }
-    }
-    None
-}
+// NOTE: session message loading for the expanded session view now
+// lives in `log_streamer::read_session_stream`, which also surfaces
+// thinking blocks, tool_use, and tool_result. Kept this file focused
+// on session summary metadata.
 
 fn extract_preview(record: &SessionRecord) -> Option<String> {
     let message = record.message.as_ref()?;

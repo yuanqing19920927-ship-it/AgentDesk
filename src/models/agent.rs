@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum AgentType {
     ClaudeCode,
     Codex,
@@ -22,7 +23,7 @@ impl AgentType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum PermissionMode {
     Default,
     DangerouslySkipPermissions,

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
-use crate::models::{AgentType, PermissionMode, Project};
-use crate::services::terminal_launcher;
+use crate::models::{AgentTemplate, AgentType, PermissionMode, Project};
+use crate::services::{template_manager, terminal_launcher};
 
 #[component]
 pub fn NewAgentDialog(
@@ -15,6 +15,13 @@ pub fn NewAgentDialog(
     let mut launching = use_signal(|| false);
     let mut confirm_dangerous = use_signal(|| false);
 
+    // Load templates once when the dialog mounts.
+    let templates = use_hook(template_manager::load_all);
+    // Selected template (by index into `templates`). None = no template.
+    let mut selected_template_idx = use_signal(|| None::<usize>);
+    // Initial prompt carried by the chosen template (copied to clipboard on launch).
+    let mut active_prompt = use_signal(|| None::<String>);
+
     let agent_types = [AgentType::ClaudeCode, AgentType::Codex];
     let permissions = [PermissionMode::Default, PermissionMode::DangerouslySkipPermissions, PermissionMode::Plan];
 
@@ -28,12 +35,59 @@ pub fn NewAgentDialog(
         projects.clone()
     };
 
+    // Apply a template to the form fields. Clears when `idx` is None.
+    let mut apply_template = move |idx: Option<usize>, tpls: &Vec<AgentTemplate>| {
+        selected_template_idx.set(idx);
+        let Some(i) = idx else {
+            active_prompt.set(None);
+            return;
+        };
+        let Some(t) = tpls.get(i) else { return };
+        agent_type_idx.set(match t.agent_type {
+            AgentType::ClaudeCode => 0,
+            AgentType::Codex => 1,
+        });
+        permission_idx.set(match t.permission_mode {
+            PermissionMode::Default => 0,
+            PermissionMode::DangerouslySkipPermissions => 1,
+            PermissionMode::Plan => 2,
+        });
+        if t.permission_mode != PermissionMode::DangerouslySkipPermissions {
+            confirm_dangerous.set(false);
+        }
+        active_prompt.set(t.initial_prompt.clone().filter(|s| !s.trim().is_empty()));
+    };
+
     rsx! {
         div { class: "dialog-overlay",
             onclick: move |_| on_close.call(()),
             div { class: "dialog",
                 onclick: move |e| e.stop_propagation(),
                 h2 { "新建 Agent" }
+
+                if !templates.is_empty() {
+                    div { class: "form-group",
+                        label { "从模板" }
+                        select {
+                            class: "form-select",
+                            onchange: {
+                                let tpls = templates.clone();
+                                move |e: Event<FormData>| {
+                                    let v = e.value();
+                                    if v.is_empty() {
+                                        apply_template(None, &tpls);
+                                    } else if let Ok(i) = v.parse::<usize>() {
+                                        apply_template(Some(i), &tpls);
+                                    }
+                                }
+                            },
+                            option { value: "", selected: selected_template_idx().is_none(), "— 不使用模板 —" }
+                            for (i, t) in templates.iter().enumerate() {
+                                option { value: "{i}", selected: selected_template_idx() == Some(i), "{t.name}" }
+                            }
+                        }
+                    }
+                }
 
                 div { class: "form-group",
                     label { "项目" }
@@ -85,6 +139,13 @@ pub fn NewAgentDialog(
                     }
                 }
 
+                if let Some(p) = active_prompt() {
+                    div { style: "background: #f2f2f7; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11px; color: #3a3a3c; max-height: 100px; overflow: auto; white-space: pre-wrap;",
+                        div { style: "font-weight: 600; margin-bottom: 4px; color: #1d1d1f;", "初始 Prompt（启动后复制到剪贴板）" }
+                        "{p}"
+                    }
+                }
+
                 if permission_idx() == 1 {
                     div { class: "warning-box",
                         p { class: "warning-title", "警告：跳过权限检查将禁用所有安全防护" }
@@ -118,11 +179,17 @@ pub fn NewAgentDialog(
                                 let proj = match effective_projects.get(proj_idx) { Some(p) => p.clone(), None => return };
                                 let at = agent_types[agent_type_idx()].clone();
                                 let pm = permissions[permission_idx()].clone();
+                                let prompt_for_launch = active_prompt();
                                 launching.set(true);
                                 error_msg.set(None);
                                 spawn(async move {
                                     let result = tokio::task::spawn_blocking(move || {
-                                        terminal_launcher::launch_agent(&proj.root, &at, &pm)
+                                        terminal_launcher::launch_agent_with_prompt(
+                                            &proj.root,
+                                            &at,
+                                            &pm,
+                                            prompt_for_launch.as_deref(),
+                                        )
                                     }).await;
                                     match result {
                                         Ok(Ok(())) => on_close.call(()),
