@@ -6,21 +6,39 @@ macOS 桌面应用，实时监控和管理 AI 编程代理（Claude Code、Codex
 
 ## 功能
 
-### 项目管理
+### 功能总览
+
+| # | 模块 | 一句话说明 |
+|---|---|---|
+| 1 | **项目管理** | 自动扫描 `~/.claude/projects/` + 手动添加，支持分组、备注名、右键菜单 |
+| 2 | **Agent 监控** | 实时检测 Claude Code / Codex 进程，识别 subagent 父子关系 |
+| 3 | **会话历史与日志查看器** | JSONL 解析，四类染色过滤 + 全文搜索 + 实时刷新 + 逐条复制 + 导出 Markdown |
+| 4 | **项目记忆** | 扫描会话生成结构化索引 + `memory.md`，自动脱敏 |
+| 5 | **费用与用量追踪 + 预算警戒** | 按模型聚合 USD / tokens，项目级预算上限 + 进度条 + 超限横幅 |
+| 6 | **组合预设 + 导入导出** | 一次拉起多个 Agent，模板/预设 JSON bundle 互导 |
+| 7 | **应用内通知中心** | 侧栏铃铛 + 未读徽章，浮层过滤 + 跳转项目 |
+| 8 | **变更审计 + 回滚 / diff 导出** | 手动 git 快照时间线，一键导出 `.patch` 或 stash-based 回滚 |
+| 9 | **项目健康度仪表盘** | 聚合 git / 会话 / 记忆 / Agent 打分得出绿黄红三态 |
+| 10 | **主目录总览** | 跨项目全局仪表盘：费用排行 + 最近活跃 + 模型分解 |
+| 11 | **灵动岛 (Dynamic Island)** | 菜单栏常驻面板，悬停展开，完成时桌面通知 |
+
+### 功能详解
+
+#### 1. 项目管理
 
 - 自动扫描 `~/.claude/projects/` 发现项目
 - 支持手动添加自定义项目路径
 - 项目分组、重命名、右键菜单操作
 - 项目概览：README 摘要、Agent 数量、会话统计
 
-### Agent 监控
+#### 2. Agent 监控
 
 - 实时检测运行中的 Claude Code / Codex 进程
 - 显示 PID、CPU 占用、工作目录、状态（工作中/空闲）
 - 识别子 Agent（subagent）及其父子关系
 - 每 Agent 自定义备注名，一键终止 / 新建（支持权限模式与模板）
 
-### 会话历史与日志查看器 (Module 10)
+#### 3. 会话历史与日志查看器
 
 - 读取 Claude Code 的 JSONL 会话记录，按时间倒序展示
 - 展开查看完整对话流，分 **消息 / 思考 / 工具调用 / 工具结果** 四类染色与过滤
@@ -30,14 +48,14 @@ macOS 桌面应用，实时监控和管理 AI 编程代理（Claude Code、Codex
 - 一键导出整段会话为 Markdown 到桌面
 - 从任意会话「另存为模板」，自动提取首条用户消息作为初始 prompt
 
-### 项目记忆 (Module 2)
+#### 4. 项目记忆
 
 - 扫描 Claude Code JSONL 会话生成结构化索引与 `memory.md`
 - 自动过滤敏感信息（API keys、tokens 等）
 - 存储位置：已授权项目写入 `{project}/.agentdesk/`（附带 `.gitignore`），否则回退 `~/.agentdesk/projects/<hash>/`
 - 生成的 `memory.md` 可被 Agent 读取作为历史上下文
 
-### 费用与用量追踪 + 预算警戒 (Module 6)
+#### 5. 费用与用量追踪 + 预算警戒
 
 - 解析每条 JSONL 的 `usage` 字段，按模型聚合 Opus / Sonnet / Haiku 花销
 - 每个项目独立展示累计 USD / input / output / 缓存写入 / 缓存读取 tokens
@@ -45,13 +63,13 @@ macOS 桌面应用，实时监控和管理 AI 编程代理（Claude Code、Codex
 - **预算警戒 UI**：每个项目可设定 USD 上限与预警阈值（%），Dashboard 显示带颜色的进度条；超过预警线或上限时顶部弹出置顶横幅
 - 配置持久化到 `~/.agentdesk/budget.json`
 
-### 组合预设 + 导入导出 (Module 7)
+#### 6. 组合预设 + 导入导出
 
 - **Combo Preset**：一个预设可包含多条 Agent 模板，Dashboard「▾ 启动组合」一次性拉起多个终端
 - 启动后显示成功/失败明细（失败的会单独列出错误原因）
 - **Bundle 导入导出**：模板与预设均可导出为 JSON 包，文件选择器输出；导入时自动重生成 ID 并修复预设内的模板引用，支持同一个 bundle 重复导入而不互覆盖
 
-### 应用内通知中心 (Module 8)
+#### 7. 应用内通知中心
 
 - 侧栏底部铃铛按钮 + 红色未读数字徽章
 - 浮层通知中心：「全部 / 未读 / 错误」三个过滤 tab
@@ -59,7 +77,7 @@ macOS 桌面应用，实时监控和管理 AI 编程代理（Claude Code、Codex
 - 全部已读 / 清空历史
 - 每 3 秒轮询 `~/.agentdesk/notifications.json`（500 条环形缓冲）刷新徽章
 
-### 变更审计 + 回滚 / diff 导出 (Module 9)
+#### 8. 变更审计 + 回滚 / diff 导出
 
 - 手动一键记录 git 快照（HEAD SHA、branch、porcelain 状态）
 - 时间线展示每次快照的修改 / 新增 / 删除 / 未跟踪文件数
@@ -67,20 +85,20 @@ macOS 桌面应用，实时监控和管理 AI 编程代理（Claude Code、Codex
 - **导出 diff**：基于快照的 HEAD SHA 调 `git diff <sha>` 生成带头注释的 `.patch`，弹出文件选择器保存，可用 `git apply` 还原
 - **回滚到快照**：先 `display dialog` 二次确认，通过 `git stash push -u` 保留当前未提交改动，再 `git reset --hard <sha>`；stash 以 `agentdesk-rollback-<id>` 命名，用户可随时 `git stash pop` 找回现场
 
-### 项目健康度仪表盘 (Module 11)
+#### 9. 项目健康度仪表盘
 
 - 聚合 4 类信号：近 7/30 天 git 提交、近 7 天会话、记忆状态、当前活跃 Agent
 - 启发式打分得出绿/黄/红三态，附提示说明原因
 - 项目切换时立即重新计算（通过 Dioxus `key` 强制组件重挂载）
 
-### 主目录总览
+#### 10. 主目录总览
 
 - 点击侧栏「主目录」查看跨项目的全局仪表盘
 - 项目总数、运行中 Agent、会话与助手调用次数
 - 累计费用 + 按模型分解
 - 项目花销排行 Top 5 + 最近活跃项目列表
 
-### 灵动岛 (Dynamic Island)
+#### 11. 灵动岛 (Dynamic Island)
 
 - 常驻菜单栏，实时显示活跃 Agent 数量与工作状态
 - 鼠标悬停自动展开详情面板
