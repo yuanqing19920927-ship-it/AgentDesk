@@ -97,10 +97,10 @@ pub fn AppShell() -> Element {
             let mut prev_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
             // PID → (when it first went idle, agent label, project name)
             let mut idle_cooldowns: std::collections::HashMap<u32, (std::time::Instant, String, String)> = std::collections::HashMap::new();
-            let idle_threshold = std::time::Duration::from_secs(10);
+            let idle_threshold = std::time::Duration::from_secs(3);
 
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 let mut detected = tokio::task::spawn_blocking(agent_detector::detect_agents)
                     .await.unwrap_or_default();
 
