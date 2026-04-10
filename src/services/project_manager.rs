@@ -70,6 +70,7 @@ pub fn custom_projects_as_models() -> Vec<Project> {
             root: path,
             name,
             claude_dir_names: Vec::new(),
+            codex_session_files: Vec::new(),
             agent_count: 0,
             last_active: None,
             session_count: 0,

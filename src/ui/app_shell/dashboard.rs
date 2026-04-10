@@ -2,10 +2,13 @@ use dioxus::prelude::*;
 use std::path::PathBuf;
 use std::process::Command;
 use chrono::Local;
-use crate::models::{Agent, AuditSnapshot, ProjectCost, ProjectHealth, Project, SessionSummary};
-use crate::services::{agent_detector, agent_names, audit_recorder, cost_tracker, health_monitor, log_streamer};
+use crate::models::{Agent, AgentTemplate, AgentType, AuditSnapshot, BudgetLevel, BudgetSettings, BudgetStatus, ComboPreset, PermissionMode, ProjectCost, ProjectHealth, Project, SessionSummary};
+use crate::services::{agent_detector, agent_names, audit_recorder, budget_manager, cost_tracker, health_monitor, log_streamer, preset_manager, template_manager};
 use crate::services::log_streamer::{StreamItem, StreamKind};
+use super::instruction_dialog::{InstructionDialog, InstructionTarget};
 use super::memory_view::MemoryView;
+use super::templates::TemplateEditor;
+// use super::workflows_section::WorkflowsSection; // 模块 5 暂缓
 
 fn scan_docs(root: &std::path::Path) -> Vec<PathBuf> {
     let mut docs = Vec::new();
@@ -74,13 +77,78 @@ pub fn Dashboard(
     let mut show_thinking = use_signal(|| false);
     let mut show_tool_use = use_signal(|| true);
     let mut show_tool_result = use_signal(|| true);
+    // Module 10 补完 — full-text search and live-tail toggle.
+    let mut log_search = use_signal(String::new);
+    let mut log_live = use_signal(|| false);
+    // Start a single background loop that re-reads the expanded
+    // session's JSONL every 2 seconds while live mode is on. The loop
+    // lives for the lifetime of the Dashboard scope (cleaned up on
+    // project switch via the `key` prop).
+    {
+        let claude_dirs = project.claude_dir_names.clone();
+        use_hook(move || {
+            spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if !log_live() {
+                        continue;
+                    }
+                    let Some(sid) = expanded_sid() else {
+                        continue;
+                    };
+                    let d = claude_dirs.clone();
+                    let items = tokio::task::spawn_blocking(move || {
+                        let h = dirs::home_dir().unwrap_or_default();
+                        for dn in &d {
+                            let cd = h.join(".claude").join("projects").join(dn);
+                            let items = log_streamer::read_session_stream(&cd, &sid);
+                            if !items.is_empty() {
+                                return items;
+                            }
+                        }
+                        Vec::new()
+                    })
+                    .await
+                    .unwrap_or_default();
+                    if !items.is_empty() {
+                        expanded_stream.set(items);
+                    }
+                }
+            });
+        });
+    }
     // Track which PID is pending kill confirmation
     let mut confirm_kill_pid = use_signal(|| None::<u32>);
     // Agent alias editing state
     let mut alias_map = use_signal(agent_names::load_all);
     let mut editing_alias_pid = use_signal(|| None::<u32>);
     let mut alias_edit_value = use_signal(String::new);
+    // Module 12.2: target of the open instruction dialog (None = closed).
+    let mut instruction_target = use_signal(|| None::<InstructionTarget>);
     let project_root_str = project.root.to_string_lossy().to_string();
+
+    // Module 7: combo preset launch. Presets are loaded on mount so the
+    // "启动组合" picker can open instantly. The launch report is held in a
+    // signal so a simple inline toast can summarise success/failure until
+    // the user dismisses it.
+    let mut combo_presets = use_signal(preset_manager::load_all);
+    let mut combo_picker_open = use_signal(|| false);
+    let mut combo_report = use_signal(|| None::<preset_manager::LaunchReport>);
+
+    // Module 7: "save as template" draft. Populated when the user clicks
+    // "另存为模板" from an expanded session log — holds a pre-filled
+    // `AgentTemplate` that gets passed to `TemplateEditor` so the user
+    // can tweak the name / permission before persisting.
+    let mut save_as_template_draft = use_signal(|| None::<AgentTemplate>);
+    let mut save_as_template_status = use_signal(|| None::<String>);
+
+    // Module 6: budget settings + editor dialog state. Loaded once on
+    // mount. The editor dialog is a simple two-field form (current
+    // project limit + warn threshold). The computed status feeds the
+    // progress bar in the cost section and the top-of-page alert
+    // banner for over-budget projects.
+    let mut budget_settings = use_signal(budget_manager::load);
+    let mut budget_editor_open = use_signal(|| false);
 
     // Cost rollup — computed in a background task so the dashboard
     // doesn't block on parsing every JSONL in the project.
@@ -88,10 +156,11 @@ pub fn Dashboard(
     {
         let project_root = project.root.clone();
         let claude_dirs = project.claude_dir_names.clone();
+        let codex_files = project.codex_session_files.clone();
         use_hook(move || {
             spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
-                    cost_tracker::project_cost(&project_root, &claude_dirs)
+                    cost_tracker::project_cost(&project_root, &claude_dirs, &codex_files)
                 })
                 .await
                 .ok();
@@ -107,6 +176,9 @@ pub fn Dashboard(
     let mut audit_snapshots = use_signal(Vec::<AuditSnapshot>::new);
     let mut audit_loading = use_signal(|| false);
     let mut audit_error = use_signal(|| None::<String>);
+    // Module 9 补完 — transient status for rollback / diff-export toasts.
+    let mut audit_status = use_signal(|| None::<String>);
+    let mut audit_busy = use_signal(|| false);
     {
         let project_root = project.root.clone();
         use_hook(move || {
@@ -154,6 +226,17 @@ pub fn Dashboard(
                 }
                 div { class: "page-header-actions",
                     button { class: "btn btn-primary", onclick: move |_| on_new_agent.call(()), "＋ 新建 Agent" }
+                    button {
+                        class: "btn btn-ghost",
+                        onclick: move |_| {
+                            // Re-read from disk each time so presets saved
+                            // in the template panel appear without a
+                            // dashboard refresh.
+                            combo_presets.set(preset_manager::load_all());
+                            combo_picker_open.set(true);
+                        },
+                        "▾ 启动组合"
+                    }
                 }
             }
 
@@ -219,14 +302,17 @@ pub fn Dashboard(
                     } else {
                         {agents.iter().map(|agent| {
                             let cwd_str = agent.cwd.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
+                            let cwd_for_instr = agent.cwd.clone();
                             let has_cwd = agent.cwd.is_some();
                             let label = agent.agent_type.label().to_string();
+                            let label_for_instr = label.clone();
                             let pid = agent.pid;
                             let cpu = agent.cpu_percent;
                             let status_label = agent.status.label().to_string();
                             let is_busy = agent.status == crate::models::AgentStatus::Busy;
                             let dot_cls = if is_busy { "status-dot busy" } else { "status-dot idle" };
                             let tty = agent.tty.clone();
+                            let tty_for_instr = tty.clone();
                             let has_tty = tty.is_some();
                             let is_sub = agent.is_subagent;
                             let parent_pid = agent.parent_pid.unwrap_or(0);
@@ -315,6 +401,23 @@ pub fn Dashboard(
                                                 "↗ 终端"
                                             }
                                         }
+                                        if has_cwd && has_tty {
+                                            button {
+                                                class: "btn-focus-terminal",
+                                                title: "快速指令 (⌘K 搜索或点击打开)",
+                                                onclick: move |_| {
+                                                    if let Some(cwd) = cwd_for_instr.clone() {
+                                                        instruction_target.set(Some(InstructionTarget {
+                                                            pid,
+                                                            tty: tty_for_instr.clone(),
+                                                            cwd,
+                                                            label: label_for_instr.clone(),
+                                                        }));
+                                                    }
+                                                },
+                                                "⌘ 指令"
+                                            }
+                                        }
                                         if confirm_kill_pid() == Some(pid) {
                                             // Confirmation state
                                             button {
@@ -345,6 +448,15 @@ pub fn Dashboard(
                 }
             }
 
+            // ── Workflow orchestration (module 5) ──
+            // 模块 5 暂缓：UI 暂不挂载，后端代码保留但未被引用。
+            // 恢复方式：取消此处 + app_shell/mod.rs 的 mod 声明 +
+            // services/mod.rs 和 models/mod.rs 的 mod 声明上的注释。
+            // WorkflowsSection {
+            //     key: "wf-{project.root.display()}",
+            //     project_root: project.root.clone(),
+            // }
+
             // ── Project memory ──
             // `key` is critical: it forces MemoryView to remount when
             // switching projects so its `use_signal` initial closures
@@ -356,9 +468,49 @@ pub fn Dashboard(
                 project: project.clone(),
             }
 
+            // ── Budget banner (module 6) ──
+            // Shown only when the current project is at or over its
+            // configured budget; nothing is rendered when the budget is
+            // unset or still green.
+            {
+                let settings = budget_settings();
+                let current_cost = cost();
+                let used = current_cost.as_ref().map(|c| c.cost_usd).unwrap_or(0.0);
+                let project_root_str_banner = project.root.to_string_lossy().to_string();
+                let status = budget_manager::project_status(&settings, &project_root_str_banner, used);
+                let show = matches!(status.level, BudgetLevel::Warn | BudgetLevel::Exceeded);
+                if show {
+                    let cls = format!("budget-banner {}", status.level.css_class());
+                    let pct = status.percent.unwrap_or(0.0);
+                    let limit_str = status
+                        .limit_usd
+                        .map(cost_tracker::format_usd)
+                        .unwrap_or_else(|| "—".to_string());
+                    let used_str = cost_tracker::format_usd(status.used_usd);
+                    let label = status.level.label();
+                    rsx! {
+                        div { class: "{cls}",
+                            span { "⚠ {label} · 已用 {used_str} / {limit_str}（{pct:.0}%）" }
+                            button {
+                                class: "btn-ghost",
+                                style: "font-size: 11px; padding: 2px 8px;",
+                                onclick: move |_| budget_editor_open.set(true),
+                                "调整预算"
+                            }
+                        }
+                    }
+                } else {
+                    rsx! {}
+                }
+            }
+
             // ── Cost & usage ──
             {
                 let current = cost();
+                let settings = budget_settings();
+                let used = current.as_ref().map(|c| c.cost_usd).unwrap_or(0.0);
+                let project_root_str_cost = project.root.to_string_lossy().to_string();
+                let status = budget_manager::project_status(&settings, &project_root_str_cost, used);
                 rsx! {
                     div { class: "section",
                         div { class: "section-label", "费用与用量" }
@@ -370,6 +522,10 @@ pub fn Dashboard(
                                     div { class: "row-sub", "统计中..." }
                                 }
                             }
+                            // Budget row — always rendered so the user
+                            // has a "设置预算" button even before any
+                            // cap is configured.
+                            {render_budget_row(&status, budget_editor_open)}
                         }
                     }
                 }
@@ -423,12 +579,23 @@ pub fn Dashboard(
                                     div { class: "row-sub", style: "color: #d93025;", "{e}" }
                                 }
                             }
+                            if let Some(msg) = audit_status() {
+                                div { class: "grouped-row",
+                                    div { class: "row-sub", style: "color: #1d6f42;", "{msg}" }
+                                }
+                            }
                             if snapshots.is_empty() {
                                 div { class: "grouped-row",
                                     div { class: "row-label", style: "color: #86868b;", "暂无快照记录" }
                                 }
                             } else {
-                                {snapshots.iter().map(|snap| render_snapshot_row(snap, project.root.clone(), audit_snapshots))}
+                                {snapshots.iter().map(|snap| render_snapshot_row(
+                                    snap,
+                                    project.root.clone(),
+                                    audit_snapshots,
+                                    audit_status,
+                                    audit_busy,
+                                ))}
                             }
                         }
                     }
@@ -547,6 +714,18 @@ pub fn Dashboard(
                                                     input { r#type: "checkbox", checked: show_thinking(), oninput: move |e| show_thinking.set(e.value() == "true") }
                                                     span { "思考" }
                                                 }
+                                                input {
+                                                    class: "log-search-input",
+                                                    r#type: "search",
+                                                    placeholder: "搜索日志...",
+                                                    value: "{log_search}",
+                                                    oninput: move |e| log_search.set(e.value()),
+                                                }
+                                                label { class: "log-filter-chip log-live-chip",
+                                                    title: "每 2 秒重读会话文件",
+                                                    input { r#type: "checkbox", checked: log_live(), oninput: move |e| log_live.set(e.value() == "true") }
+                                                    span { "实时" }
+                                                }
                                                 button {
                                                     class: "btn-ghost",
                                                     style: "font-size: 11px; padding: 2px 8px; margin-left: auto;",
@@ -562,6 +741,31 @@ pub fn Dashboard(
                                                     },
                                                     "导出 Markdown"
                                                 }
+                                                button {
+                                                    class: "btn-ghost",
+                                                    style: "font-size: 11px; padding: 2px 8px;",
+                                                    onclick: move |_| {
+                                                        // Grab the first user text message from the
+                                                        // expanded stream as the seed initial_prompt.
+                                                        // Tool results also carry role="user" so we
+                                                        // filter to Text kind to avoid dumping a
+                                                        // tool-output blob into the prompt field.
+                                                        let seed = expanded_stream()
+                                                            .iter()
+                                                            .find(|i| i.role == "user" && i.kind == StreamKind::Text)
+                                                            .map(|i| i.content.trim().to_string())
+                                                            .filter(|s| !s.is_empty());
+                                                        let mut draft = AgentTemplate::new(
+                                                            String::new(),
+                                                            AgentType::ClaudeCode,
+                                                            PermissionMode::Default,
+                                                        );
+                                                        draft.initial_prompt = seed;
+                                                        save_as_template_draft.set(Some(draft));
+                                                        save_as_template_status.set(None);
+                                                    },
+                                                    "另存为模板"
+                                                }
                                             }
                                             if loading() {
                                                 p { style: "color: #86868b; padding: 12px 0; text-align: center;", "加载中..." }
@@ -573,14 +777,37 @@ pub fn Dashboard(
                                                     let stu = show_tool_use();
                                                     let str_ = show_tool_result();
                                                     let sth = show_thinking();
-                                                    expanded_stream().into_iter()
-                                                        .filter(move |item| match item.kind {
+                                                    let q = log_search().trim().to_lowercase();
+                                                    let has_q = !q.is_empty();
+                                                    let items: Vec<StreamItem> = expanded_stream().into_iter()
+                                                        .filter(|item| match item.kind {
                                                             StreamKind::Text => st,
                                                             StreamKind::ToolUse => stu,
                                                             StreamKind::ToolResult => str_,
                                                             StreamKind::Thinking => sth,
                                                         })
-                                                        .map(|item| render_stream_item(&item))
+                                                        .filter(|item| {
+                                                            if !has_q { return true; }
+                                                            if item.content.to_lowercase().contains(&q) { return true; }
+                                                            if let Some(tn) = &item.tool_name {
+                                                                if tn.to_lowercase().contains(&q) { return true; }
+                                                            }
+                                                            false
+                                                        })
+                                                        .collect();
+                                                    let count = items.len();
+                                                    let empty = items.is_empty();
+                                                    rsx! {
+                                                        if has_q {
+                                                            div { class: "log-search-summary", "匹配 {count} 条" }
+                                                        }
+                                                        if empty {
+                                                            p { style: "color: #86868b; padding: 12px 0; text-align: center;",
+                                                                if has_q { "没有匹配的日志" } else { "根据过滤条件无可显示项" }
+                                                            }
+                                                        }
+                                                        {items.into_iter().map(|item| render_stream_item(&item))}
+                                                    }
                                                 }
                                             }
                                         }
@@ -588,6 +815,188 @@ pub fn Dashboard(
                                 }
                             }
                         })}
+                    }
+                }
+            }
+        }
+        if let Some(target) = instruction_target() {
+            InstructionDialog {
+                target,
+                on_close: move |_| instruction_target.set(None),
+            }
+        }
+
+        // ── Module 6: budget editor dialog ──
+        if budget_editor_open() {
+            BudgetEditor {
+                initial: budget_settings(),
+                project_root: project.root.to_string_lossy().to_string(),
+                on_save: move |new_settings: BudgetSettings| {
+                    budget_settings.set(new_settings);
+                    budget_editor_open.set(false);
+                },
+                on_cancel: move |_| budget_editor_open.set(false),
+            }
+        }
+
+        // ── Module 7: save-session-as-template dialog ──
+        // Reuses the TemplateEditor component from templates.rs so the
+        // form, validation, and styling stay in one place.
+        if let Some(draft) = save_as_template_draft() {
+            TemplateEditor {
+                initial: draft,
+                on_save: move |saved: AgentTemplate| {
+                    match template_manager::save(&saved) {
+                        Ok(()) => {
+                            save_as_template_draft.set(None);
+                            save_as_template_status.set(Some(format!("已保存模板「{}」", saved.name)));
+                        }
+                        Err(e) => save_as_template_status.set(Some(format!("保存失败：{}", e))),
+                    }
+                },
+                on_cancel: move |_| save_as_template_draft.set(None),
+            }
+        }
+
+        if let Some(msg) = save_as_template_status() {
+            div {
+                style: "position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); \
+                        z-index: 9998; background: #1d1d1f; color: #fff; \
+                        padding: 8px 14px; border-radius: 20px; font-size: 12px; \
+                        box-shadow: 0 4px 16px rgba(0,0,0,0.25); cursor: pointer;",
+                onclick: move |_| save_as_template_status.set(None),
+                "{msg}"
+            }
+        }
+
+        // ── Module 7: combo preset picker ──
+        // Opened from the "▾ 启动组合" button. Lists every preset saved in
+        // `~/.agentdesk/presets/` and launches the chosen one into the
+        // current project root. Launch is synchronous and blocks the UI
+        // thread only long enough to spawn terminal windows — the actual
+        // agents run inside those windows, not here.
+        if combo_picker_open() {
+            {
+                let presets_now = combo_presets();
+                let project_root_for_launch = project.root.clone();
+                rsx! {
+                    div { class: "dialog-overlay",
+                        onclick: move |_| combo_picker_open.set(false),
+                        div { class: "dialog",
+                            style: "max-width: 480px;",
+                            onclick: move |e| e.stop_propagation(),
+                            h2 { "启动组合" }
+                            div { class: "row-sub", style: "color: #86868b; margin-bottom: 8px;",
+                                "选择一个组合预设，一次性启动多个 Agent 窗口到当前项目。"
+                            }
+                            if presets_now.is_empty() {
+                                div { style: "padding: 20px; text-align: center; color: #86868b;",
+                                    "暂无组合预设 — 先在「模板与组合」里创建"
+                                }
+                            } else {
+                                div { class: "grouped-card",
+                                    {presets_now.iter().map(|p| {
+                                        let preset_clone = p.clone();
+                                        let project_root_inner = project_root_for_launch.clone();
+                                        let name = p.name.clone();
+                                        let item_count = p.items.len();
+                                        let desc = p.description.clone();
+                                        let has_desc = !desc.trim().is_empty();
+                                        rsx! {
+                                            div { class: "grouped-row",
+                                                div { class: "row-content",
+                                                    div { class: "row-label-bold", "{name}" }
+                                                    div { class: "row-sub",
+                                                        span { "{item_count} 个模板" }
+                                                        if has_desc {
+                                                            " · "
+                                                            span { "{desc}" }
+                                                        }
+                                                    }
+                                                }
+                                                button {
+                                                    class: "btn btn-primary",
+                                                    style: "font-size: 12px; padding: 4px 12px;",
+                                                    onclick: move |_| {
+                                                        let root = project_root_inner.clone();
+                                                        let preset = preset_clone.clone();
+                                                        spawn(async move {
+                                                            // Block off-thread so spawning
+                                                            // terminal windows via osascript
+                                                            // does not freeze the renderer.
+                                                            let report = tokio::task::spawn_blocking(move || {
+                                                                preset_manager::launch_preset(&root, &preset)
+                                                            })
+                                                            .await
+                                                            .ok();
+                                                            if let Some(r) = report {
+                                                                combo_report.set(Some(r));
+                                                            }
+                                                            combo_picker_open.set(false);
+                                                        });
+                                                    },
+                                                    "启动"
+                                                }
+                                            }
+                                        }
+                                    })}
+                                }
+                            }
+                            div { class: "dialog-actions",
+                                button {
+                                    class: "btn-ghost",
+                                    onclick: move |_| combo_picker_open.set(false),
+                                    "关闭"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Module 7: launch report toast ──
+        // Non-modal summary shown after a combo launch. Clicking anywhere
+        // on the card dismisses it. We keep the full list inline rather
+        // than auto-hiding so the user can actually read which items
+        // failed — half-successful launches are the interesting case.
+        if let Some(report) = combo_report() {
+            {
+                let launched = report.launched.clone();
+                let failed = report.failed.clone();
+                let missing = report.missing_templates.clone();
+                let total = report.total_attempted();
+                let ok_count = launched.len();
+                rsx! {
+                    div {
+                        style: "position: fixed; right: 20px; bottom: 20px; z-index: 9998; \
+                                background: #fff; border: 0.5px solid #d1d1d6; border-radius: 10px; \
+                                box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 12px 14px; \
+                                max-width: 360px; font-size: 12px; cursor: pointer;",
+                        onclick: move |_| combo_report.set(None),
+                        div { style: "font-weight: 600; margin-bottom: 6px;",
+                            "组合启动完成：{ok_count}/{total}"
+                        }
+                        if !launched.is_empty() {
+                            div { style: "color: #1c5b17;",
+                                "✓ 已启动：{launched.join(\", \")}"
+                            }
+                        }
+                        if !failed.is_empty() {
+                            div { style: "color: #8a0f05; margin-top: 4px;",
+                                {failed.iter().map(|(label, err)| rsx! {
+                                    div { "✗ {label}：{err}" }
+                                })}
+                            }
+                        }
+                        if !missing.is_empty() {
+                            div { style: "color: #8a0f05; margin-top: 4px;",
+                                "⚠ 模板缺失：{missing.join(\", \")}"
+                            }
+                        }
+                        div { style: "color: #86868b; margin-top: 6px; font-size: 11px;",
+                            "点击关闭"
+                        }
                     }
                 }
             }
@@ -622,6 +1031,7 @@ fn render_stream_item(item: &StreamItem) -> Element {
     let has_tool = item.tool_name.is_some();
     let cd = truncate_msg(&item.content, 2000);
     let is_code = matches!(item.kind, StreamKind::ToolUse | StreamKind::ToolResult);
+    let full_content = item.content.clone();
 
     rsx! {
         div { class: "{bc}",
@@ -630,6 +1040,25 @@ fn render_stream_item(item: &StreamItem) -> Element {
                 span { class: "msg-kind-badge", "{kind_label}" }
                 if has_tool { span { class: "msg-tool-name", "{tool}" } }
                 if has_mt { span { class: "msg-time", "{td}" } }
+                button {
+                    class: "msg-copy-btn",
+                    title: "复制内容到剪贴板",
+                    onclick: move |_| {
+                        // Write through stdin to avoid any shell-escaping
+                        // issues with quotes / backticks in tool outputs.
+                        use std::io::Write as _;
+                        if let Ok(mut child) = std::process::Command::new("pbcopy")
+                            .stdin(std::process::Stdio::piped())
+                            .spawn()
+                        {
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(full_content.as_bytes());
+                            }
+                            let _ = child.wait();
+                        }
+                    },
+                    "复制"
+                }
             }
             if is_code {
                 pre { class: "msg-content msg-code", "{cd}" }
@@ -701,15 +1130,21 @@ fn render_cost_card(c: &ProjectCost) -> Element {
 }
 
 /// Render a single snapshot row in the audit timeline. Includes the
-/// timestamp, branch + short SHA, dirty file counts, and a delete
-/// button that re-fetches the list on success.
+/// timestamp, branch + short SHA, dirty file counts, and four actions:
+/// 导出 diff / 回滚到此处 / 删除。
 fn render_snapshot_row(
     snap: &AuditSnapshot,
     project_root: PathBuf,
     mut snapshots_signal: Signal<Vec<AuditSnapshot>>,
+    mut status_signal: Signal<Option<String>>,
+    mut busy_signal: Signal<bool>,
 ) -> Element {
     let id = snap.id.clone();
     let id_del = id.clone();
+    let id_export = id.clone();
+    let root_export = project_root.clone();
+    let root_rollback = project_root.clone();
+    let root_delete = project_root.clone();
     let ts = snap.timestamp.with_timezone(&Local).format("%m-%d %H:%M").to_string();
     let branch = snap.branch.clone().unwrap_or_else(|| "—".to_string());
     let short_sha = snap.short_sha();
@@ -720,6 +1155,10 @@ fn render_snapshot_row(
     let dirty = snap.dirty_count();
     let has_label = snap.label.is_some();
     let label_text = snap.label.clone().unwrap_or_default();
+    let has_sha = snap.head_sha.is_some();
+    let snap_for_export = snap.clone();
+    let snap_for_rollback = snap.clone();
+    let busy = busy_signal();
 
     rsx! {
         div { class: "grouped-row",
@@ -740,25 +1179,101 @@ fn render_snapshot_row(
                     }
                 }
             }
-            button {
-                class: "btn-kill-cancel",
-                title: "删除快照",
-                onclick: move |_| {
-                    let root = project_root.clone();
-                    let sid = id_del.clone();
-                    spawn(async move {
-                        let _ = tokio::task::spawn_blocking({
-                            let root = root.clone();
-                            let sid = sid.clone();
-                            move || audit_recorder::delete_snapshot(&root, &sid)
-                        }).await;
-                        let list = tokio::task::spawn_blocking(move || {
-                            audit_recorder::list_snapshots(&root)
-                        }).await.unwrap_or_default();
-                        snapshots_signal.set(list);
-                    });
-                },
-                "删除"
+            div { style: "display: flex; gap: 6px;",
+                button {
+                    class: "btn-ghost btn-xs",
+                    disabled: busy,
+                    title: "导出 git diff 补丁",
+                    onclick: move |_| {
+                        let root = root_export.clone();
+                        let snap = snap_for_export.clone();
+                        let default_name = format!("agentdesk-diff-{}.patch", id_export);
+                        busy_signal.set(true);
+                        status_signal.set(None);
+                        spawn(async move {
+                            let result = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>, String> {
+                                let Some(path) = audit_recorder::pick_diff_save_path(&default_name)? else {
+                                    return Ok(None);
+                                };
+                                let text = audit_recorder::export_diff_text(&root, &snap)?;
+                                audit_recorder::write_diff_file(&path, &text)?;
+                                Ok(Some(path))
+                            }).await.map_err(|e| e.to_string()).and_then(|r| r);
+                            match result {
+                                Ok(Some(p)) => status_signal.set(Some(format!("已导出 diff: {}", p.display()))),
+                                Ok(None) => {}
+                                Err(e) => status_signal.set(Some(format!("导出失败: {}", e))),
+                            }
+                            busy_signal.set(false);
+                        });
+                    },
+                    "导出 diff"
+                }
+                if has_sha {
+                    button {
+                        class: "btn-ghost btn-xs",
+                        disabled: busy,
+                        title: "stash 当前改动并 git reset --hard 到此快照",
+                        style: "color: #c10b00;",
+                        onclick: move |_| {
+                            let root = root_rollback.clone();
+                            let snap = snap_for_rollback.clone();
+                            busy_signal.set(true);
+                            status_signal.set(None);
+                            spawn(async move {
+                                let sha = snap.head_sha.clone().unwrap_or_default();
+                                let short = sha.chars().take(7).collect::<String>();
+                                let prompt = format!(
+                                    "确认要回滚到快照 {} ({})?\\n\\n当前未提交改动会自动 stash 保留，可稍后 git stash pop 恢复。",
+                                    snap.id, short
+                                );
+                                let confirmed = tokio::task::spawn_blocking(move || {
+                                    audit_recorder::confirm_dialog(&prompt)
+                                }).await.unwrap_or(false);
+                                if !confirmed {
+                                    busy_signal.set(false);
+                                    return;
+                                }
+                                let root_refresh = root.clone();
+                                let result = tokio::task::spawn_blocking(move || {
+                                    audit_recorder::rollback_to_snapshot(&root, &snap)
+                                }).await.map_err(|e| e.to_string()).and_then(|r| r);
+                                match result {
+                                    Ok(msg) => status_signal.set(Some(msg)),
+                                    Err(e) => status_signal.set(Some(format!("回滚失败: {}", e))),
+                                }
+                                // Refresh list — post-rollback git status will differ.
+                                let list = tokio::task::spawn_blocking(move || {
+                                    audit_recorder::list_snapshots(&root_refresh)
+                                }).await.unwrap_or_default();
+                                snapshots_signal.set(list);
+                                busy_signal.set(false);
+                            });
+                        },
+                        "回滚"
+                    }
+                }
+                button {
+                    class: "btn-kill-cancel",
+                    title: "删除快照",
+                    disabled: busy,
+                    onclick: move |_| {
+                        let root = root_delete.clone();
+                        let sid = id_del.clone();
+                        spawn(async move {
+                            let _ = tokio::task::spawn_blocking({
+                                let root = root.clone();
+                                let sid = sid.clone();
+                                move || audit_recorder::delete_snapshot(&root, &sid)
+                            }).await;
+                            let list = tokio::task::spawn_blocking(move || {
+                                audit_recorder::list_snapshots(&root)
+                            }).await.unwrap_or_default();
+                            snapshots_signal.set(list);
+                        });
+                    },
+                    "删除"
+                }
             }
         }
     }
@@ -819,6 +1334,172 @@ fn render_health_card(h: &ProjectHealth) -> Element {
                     }
                 }
             })}
+        }
+    }
+}
+
+/// Render the budget row at the bottom of the cost card: progress bar +
+/// used/limit label + level chip + edit button. Always renders — when
+/// no limit is set, the bar is grey and the chip says "未设置".
+fn render_budget_row(status: &BudgetStatus, mut editor_open: Signal<bool>) -> Element {
+    let level_cls = status.level.css_class();
+    let level_label = status.level.label();
+    let fill_cls = format!("budget-bar-fill {}", level_cls);
+    let chip_cls = format!("budget-chip {}", level_cls);
+    // Clamp the fill to 100% so the bar never overflows the track —
+    // users can still see they're "over" via the chip/banner.
+    let fill_pct = status
+        .percent
+        .map(|p| p.min(100.0))
+        .unwrap_or(0.0);
+    let fill_style = format!("width: {:.1}%;", fill_pct);
+    let used_str = cost_tracker::format_usd(status.used_usd);
+    let limit_str = status
+        .limit_usd
+        .map(cost_tracker::format_usd)
+        .unwrap_or_else(|| "未设预算".to_string());
+    let pct_str = status
+        .percent
+        .map(|p| format!("{:.0}%", p))
+        .unwrap_or_else(|| "—".to_string());
+
+    rsx! {
+        div { class: "grouped-row",
+            div { class: "row-content",
+                div { class: "budget-row-header",
+                    span { class: "row-label-bold", "预算" }
+                    span { class: "{chip_cls}", "{level_label}" }
+                }
+                div { class: "row-sub",
+                    "已用 {used_str} · 上限 {limit_str} · {pct_str}"
+                }
+                div { class: "budget-bar-wrap", style: "margin-top: 6px;",
+                    div { class: "{fill_cls}", style: "{fill_style}" }
+                }
+            }
+            button {
+                class: "btn-ghost",
+                style: "font-size: 12px; padding: 4px 10px;",
+                onclick: move |_| editor_open.set(true),
+                "设置"
+            }
+        }
+    }
+}
+
+/// Inline editor dialog for per-project budget and warn threshold. The
+/// global budget is intentionally *not* editable here — this sits
+/// inside a per-project dashboard and the global cap belongs in a
+/// dedicated settings panel. Deferring that keeps scope tight.
+#[component]
+fn BudgetEditor(
+    initial: BudgetSettings,
+    project_root: String,
+    on_save: EventHandler<BudgetSettings>,
+    on_cancel: EventHandler<()>,
+) -> Element {
+    let seed_limit = initial
+        .project_limit(&project_root)
+        .map(|v| format!("{}", v))
+        .unwrap_or_default();
+    let seed_warn = format!("{}", initial.warn_at_percent);
+
+    let mut limit_input = use_signal(|| seed_limit);
+    let mut warn_input = use_signal(|| seed_warn);
+    let mut err = use_signal(|| None::<String>);
+
+    let project_root_for_save = project_root.clone();
+
+    rsx! {
+        div { class: "dialog-overlay",
+            onclick: move |_| on_cancel.call(()),
+            div { class: "dialog",
+                style: "max-width: 460px;",
+                onclick: move |e| e.stop_propagation(),
+                h2 { "预算与告警" }
+                div { class: "row-sub", style: "color: #86868b; margin-bottom: 10px;",
+                    "项目累计花费达到阈值时会触发告警。留空清除限额。"
+                }
+
+                div { class: "form-group",
+                    label { "当前项目预算（USD）" }
+                    input {
+                        class: "form-select",
+                        style: "width: 100%; padding: 6px 8px;",
+                        value: "{limit_input}",
+                        placeholder: "例如 20",
+                        oninput: move |e| limit_input.set(e.value()),
+                    }
+                }
+
+                div { class: "form-group",
+                    label { "告警阈值（% of 上限，1-100）" }
+                    input {
+                        class: "form-select",
+                        style: "width: 100%; padding: 6px 8px;",
+                        value: "{warn_input}",
+                        oninput: move |e| warn_input.set(e.value()),
+                    }
+                }
+
+                if let Some(msg) = err() {
+                    div { style: "color: #ff3b30; font-size: 12px; margin-bottom: 10px;", "{msg}" }
+                }
+
+                div { class: "dialog-actions",
+                    button { class: "btn-ghost", onclick: move |_| on_cancel.call(()), "取消" }
+                    button {
+                        class: "btn btn-primary",
+                        onclick: move |_| {
+                            let limit_raw = limit_input();
+                            let trimmed = limit_raw.trim();
+                            let new_limit: Option<f64> = if trimmed.is_empty() {
+                                None
+                            } else {
+                                match trimmed.parse::<f64>() {
+                                    Ok(v) if v > 0.0 => Some(v),
+                                    Ok(_) => {
+                                        err.set(Some("预算必须大于 0".into()));
+                                        return;
+                                    }
+                                    Err(_) => {
+                                        err.set(Some("预算格式无效，请输入数字".into()));
+                                        return;
+                                    }
+                                }
+                            };
+
+                            let warn_raw = warn_input();
+                            let warn_pct: f64 = match warn_raw.trim().parse::<f64>() {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    err.set(Some("告警阈值格式无效".into()));
+                                    return;
+                                }
+                            };
+                            if !(1.0..=100.0).contains(&warn_pct) {
+                                err.set(Some("告警阈值必须在 1 到 100 之间".into()));
+                                return;
+                            }
+
+                            // Persist both changes atomically (two
+                            // saves are fine — each write is atomic,
+                            // and worst case a crash between them
+                            // leaves the project limit updated but
+                            // the warn threshold unchanged).
+                            match budget_manager::set_project_limit(&project_root_for_save, new_limit) {
+                                Ok(_) => {}
+                                Err(e) => { err.set(Some(e)); return; }
+                            }
+                            match budget_manager::set_warn_percent(warn_pct) {
+                                Ok(settings) => on_save.call(settings),
+                                Err(e) => err.set(Some(e)),
+                            }
+                        },
+                        "保存"
+                    }
+                }
+            }
         }
     }
 }

@@ -1,25 +1,31 @@
 use dioxus::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::models::{Agent, NotificationEventType, Project, SessionSummary};
+use crate::models::{Agent, AgentTemplate, NotificationEventType, Project, SessionSummary};
 use crate::models::AgentStatus;
-use crate::services::{agent_detector, island, notifier, project_manager, project_scanner, session_reader};
+use crate::services::{agent_detector, island, notifier, project_manager, project_scanner, session_reader, template_manager};
 use crate::ui::styles::GLOBAL_CSS;
 
+mod command_palette;
 mod sidebar;
 mod dashboard;
 mod dynamic_island;
 mod home_dashboard;
+mod instruction_dialog;
 mod memory_view;
 mod new_agent_dialog;
+mod notification_center;
 mod settings;
 mod templates;
+// mod workflows_section; // 模块 5 暂缓：工作流功能先隐藏，代码保留在磁盘
 
+use command_palette::CommandPalette;
 use sidebar::Sidebar;
 use dashboard::Dashboard;
 use home_dashboard::HomeDashboard;
 // dynamic_island module kept for potential future in-app use
 use new_agent_dialog::NewAgentDialog;
+use notification_center::NotificationCenter;
 use settings::SettingsPanel;
 use templates::TemplatesPanel;
 
@@ -33,6 +39,17 @@ pub fn AppShell() -> Element {
     let mut show_new_agent = use_signal(|| false);
     let mut show_settings = use_signal(|| false);
     let mut show_templates = use_signal(|| false);
+    let mut show_palette = use_signal(|| false);
+    let mut show_notifications = use_signal(|| false);
+    let mut unread_count = use_signal(notifier::unread_count);
+    let mut templates = use_signal(Vec::<AgentTemplate>::new);
+
+    // Load templates once on mount — cheap disk read, refreshed when the
+    // palette is reopened below so new templates show up without restart.
+    use_hook(move || {
+        let loaded = template_manager::load_all();
+        templates.set(loaded);
+    });
 
     // Load projects (auto-discovered + custom)
     let load_all_projects = move || {
@@ -178,6 +195,7 @@ pub fn AppShell() -> Element {
 
                 island::write_island_state(&detected);
                 agents.set(detected);
+                unread_count.set(notifier::unread_count());
             }
         });
     });
@@ -268,10 +286,30 @@ pub fn AppShell() -> Element {
             class: "titlebar-drag",
             onmousedown: move |_| { dioxus::desktop::window().drag(); },
         }
+        // Window-level key listener — Cmd+K toggles the command palette.
+        // This is intentionally *not* a true OS-level global hotkey
+        // (that would need objc2 + Accessibility permission). It only
+        // fires when the AgentDesk window has focus.
         div { class: "app-container",
+            tabindex: "0",
+            onkeydown: move |e: KeyboardEvent| {
+                let mods = e.modifiers();
+                let cmd = mods.meta() || mods.ctrl();
+                if cmd && e.key() == Key::Character("k".into()) {
+                    e.prevent_default();
+                    let next = !show_palette();
+                    if next {
+                        // Refresh template list on each open so newly-saved
+                        // templates appear without restarting the app.
+                        templates.set(template_manager::load_all());
+                    }
+                    show_palette.set(next);
+                }
+            },
             Sidebar {
                 projects: projects_with_agents.clone(),
                 selected_idx: if show_settings() || show_templates() { None } else { selected_idx() },
+                unread_count: unread_count(),
                 on_select: move |i: usize| {
                     show_settings.set(false);
                     show_templates.set(false);
@@ -286,6 +324,12 @@ pub fn AppShell() -> Element {
                     show_settings.set(false);
                     show_templates.set(true);
                     selected_idx.set(None);
+                },
+                on_notifications: move |_| {
+                    // Opening the panel counts as "seeing" the new items:
+                    // refresh the unread badge once they've marked-as-read
+                    // or dismissed entries from inside the panel.
+                    show_notifications.set(true);
                 },
             }
             div { class: "main-panel",
@@ -340,6 +384,76 @@ pub fn AppShell() -> Element {
                 project: selected_project.clone(),
                 projects: projects_with_agents.clone(),
                 on_close: move |_| show_new_agent.set(false),
+            }
+        }
+        if show_notifications() {
+            {
+                // Snapshot project roots so the jump handler can resolve
+                // them to an index without borrowing `projects_with_agents`
+                // from the outer scope.
+                let project_roots: Vec<std::path::PathBuf> = projects_with_agents
+                    .iter()
+                    .map(|p| p.root.clone())
+                    .collect();
+                rsx! {
+                    NotificationCenter {
+                        on_close: move |_| {
+                            show_notifications.set(false);
+                            unread_count.set(notifier::unread_count());
+                        },
+                        on_jump_project: move |root: String| {
+                            let target = std::path::PathBuf::from(&root);
+                            if let Some(idx) = project_roots.iter().position(|p| p == &target) {
+                                show_settings.set(false);
+                                show_templates.set(false);
+                                show_notifications.set(false);
+                                selected_idx.set(Some(idx));
+                                unread_count.set(notifier::unread_count());
+                            }
+                        },
+                    }
+                }
+            }
+        }
+        if show_palette() {
+            {
+                let palette_projects = projects_with_agents.clone();
+                // Home dashboard navigation: find the project whose root
+                // matches $HOME. Falls back to selecting index 0 if missing.
+                let home_dir = dirs::home_dir().unwrap_or_default();
+                let home_idx = palette_projects
+                    .iter()
+                    .position(|p| p.root == home_dir)
+                    .unwrap_or(0);
+                rsx! {
+                    CommandPalette {
+                        projects: palette_projects.clone(),
+                        agents: agents().clone(),
+                        templates: templates().clone(),
+                        on_close: move |_| show_palette.set(false),
+                        on_select_project: move |i: usize| {
+                            show_settings.set(false);
+                            show_templates.set(false);
+                            selected_idx.set(Some(i));
+                        },
+                        on_open_settings: move |_| {
+                            show_templates.set(false);
+                            show_settings.set(true);
+                            selected_idx.set(None);
+                        },
+                        on_open_templates: move |_| {
+                            show_settings.set(false);
+                            show_templates.set(true);
+                            selected_idx.set(None);
+                        },
+                        on_new_agent: move |_| show_new_agent.set(true),
+                        on_home_dashboard: move |_| {
+                            show_settings.set(false);
+                            show_templates.set(false);
+                            selected_idx.set(Some(home_idx));
+                        },
+                    }
+                }
             }
         }
     }

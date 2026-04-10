@@ -97,6 +97,7 @@ pub fn scan_projects() -> Vec<Project> {
                     root: project_root.clone(),
                     name,
                     claude_dir_names: Vec::new(),
+                    codex_session_files: Vec::new(),
                     agent_count: 0,
                     last_active: None,
                     session_count: 0,
@@ -115,6 +116,44 @@ pub fn scan_projects() -> Vec<Project> {
     }
 
     save_project_map(&project_map);
+
+    // Second pass: merge Codex rollout sessions into the same
+    // project map. For each codex cwd we either (a) attach to an
+    // existing project when it matches an already-discovered root or
+    // (b) create a codex-only project entry.
+    let codex_by_root = crate::services::codex_scanner::scan_codex_sessions();
+    for (root, files) in codex_by_root {
+        let project = projects.entry(root.clone()).or_insert_with(|| {
+            let name = root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            Project {
+                root: root.clone(),
+                name,
+                claude_dir_names: Vec::new(),
+                codex_session_files: Vec::new(),
+                agent_count: 0,
+                last_active: None,
+                session_count: 0,
+            }
+        });
+        // Track the most recent mtime across codex files too so
+        // codex-only projects get a meaningful "last active".
+        let codex_last = files
+            .iter()
+            .filter_map(|f| fs::metadata(f).ok())
+            .filter_map(|m| m.modified().ok())
+            .max()
+            .map(chrono::DateTime::<chrono::Utc>::from);
+        if let Some(ts) = codex_last {
+            if project.last_active.is_none_or(|cur| cur < ts) {
+                project.last_active = Some(ts);
+            }
+        }
+        project.session_count += files.len();
+        project.codex_session_files.extend(files);
+    }
 
     let mut result: Vec<Project> = projects.into_values().collect();
     result.sort_by(|a, b| b.last_active.cmp(&a.last_active));

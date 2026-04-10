@@ -105,6 +105,49 @@ pub fn launch_agent(
     Ok(())
 }
 
+/// Launch an arbitrary shell command line in a new terminal window,
+/// after first `cd`ing to `project_dir`. Unlike `launch_agent`, the
+/// caller is fully responsible for the command string — typically a
+/// wrapper that sets up env vars, writes sentinel files, and then
+/// execs the agent. Used by the workflow engine (module 5) so it can
+/// inject `AGENTDESK_LAUNCH_TOKEN` and pid/exit tracking.
+///
+/// The command string is **not** validated or escaped by this
+/// function: the engine controls it in full and must itself use
+/// `quoted form of` for any paths it interpolates.
+pub fn launch_wrapped_command(
+    project_dir: &Path,
+    full_cmd: &str,
+) -> Result<(), String> {
+    if !project_dir.is_absolute() {
+        return Err("Project path must be absolute".to_string());
+    }
+    if !project_dir.is_dir() {
+        return Err(format!(
+            "Project directory does not exist: {}",
+            project_dir.display()
+        ));
+    }
+    let dir_str = project_dir.to_string_lossy();
+    let script = if is_iterm_installed() {
+        build_iterm_script(&dir_str, full_cmd)
+    } else {
+        build_terminal_script(&dir_str, full_cmd)
+    };
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "osascript failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
 fn is_iterm_installed() -> bool {
     Path::new("/Applications/iTerm.app").exists()
 }
@@ -137,4 +180,29 @@ end tell"#,
 
 fn escape_applescript(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Best-effort: bring the terminal window whose cwd matches `cwd` to
+/// the front. We don't know which iTerm2 / Terminal session hosts a
+/// given agent, so we just activate the app — the user can Cmd+` to
+/// cycle sessions from there. This is good enough for the command
+/// palette's "jump to running agent" action.
+///
+/// Returns `Err` if the terminal app isn't installed or osascript
+/// failed. Callers should treat errors as non-fatal.
+pub fn focus_terminal_for_cwd(_cwd: &Path) -> Result<(), String> {
+    let app = if is_iterm_installed() { "iTerm2" } else { "Terminal" };
+    let script = format!(r#"tell application "{}" to activate"#, app);
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("osascript spawn: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "osascript failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
 }

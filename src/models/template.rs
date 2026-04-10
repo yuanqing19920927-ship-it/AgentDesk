@@ -52,7 +52,7 @@ impl AgentTemplate {
 /// enough for local-only template ids; collisions would require two templates
 /// created within the same millisecond from the same process after the
 /// counter wraps (2^32), which is not a realistic scenario.
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: AtomicU32 = AtomicU32::new(0);

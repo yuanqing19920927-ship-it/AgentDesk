@@ -203,10 +203,10 @@ fn compute_global_stats(projects: &[Project]) -> GlobalStats {
         if p.root == home {
             continue;
         }
-        if p.claude_dir_names.is_empty() {
+        if p.claude_dir_names.is_empty() && p.codex_session_files.is_empty() {
             continue;
         }
-        let pc = cost_tracker::project_cost(&p.root, &p.claude_dir_names);
+        let pc = cost_tracker::project_cost(&p.root, &p.claude_dir_names, &p.codex_session_files);
         total_cost += pc.cost_usd;
         total_sessions += pc.session_count;
         total_messages += pc.message_count;

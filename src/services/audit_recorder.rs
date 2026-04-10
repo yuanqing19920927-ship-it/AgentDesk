@@ -160,6 +160,240 @@ pub fn diff_snapshots(old: &AuditSnapshot, new: &AuditSnapshot) -> AuditDiff {
     }
 }
 
+// ──────────────────────── diff export ────────────────────────
+
+/// Generate a unified diff text describing how to reach the snapshot's
+/// recorded state from the *current* working tree. Users then save
+/// this as a `.patch` they can apply elsewhere or hand to a reviewer.
+///
+/// Strategy:
+/// 1. If the snapshot has a recorded HEAD SHA and the repo still has
+///    it, run `git diff <sha>` — this is a real patch showing the
+///    delta between that commit and the working tree.
+/// 2. Otherwise fall back to an informational "snapshot listing"
+///    header so the file is still useful for audit purposes.
+///
+/// The untracked files from the snapshot are appended as a note at the
+/// end so reviewers know they existed at snapshot time.
+pub fn export_diff_text(project_root: &Path, snap: &AuditSnapshot) -> Result<String, String> {
+    let mut out = String::new();
+
+    // Header — human-readable summary of the snapshot we're diffing from.
+    out.push_str(&format!("# AgentDesk audit diff\n"));
+    out.push_str(&format!("# project : {}\n", project_root.display()));
+    out.push_str(&format!("# snapshot: {}\n", snap.id));
+    out.push_str(&format!("# taken  : {}\n", snap.timestamp.to_rfc3339()));
+    if let Some(b) = &snap.branch {
+        out.push_str(&format!("# branch : {}\n", b));
+    }
+    if let Some(s) = &snap.head_sha {
+        out.push_str(&format!("# head   : {}\n", s));
+    }
+    if let Some(label) = &snap.label {
+        out.push_str(&format!("# label  : {}\n", label));
+    }
+    out.push_str("#\n");
+    out.push_str("# Apply with:  git apply <this-file>\n");
+    out.push_str("#\n\n");
+
+    if let Some(sha) = &snap.head_sha {
+        // Verify the SHA still exists in the repo before diffing —
+        // otherwise `git diff` would error out and leave the user
+        // without an export.
+        let exists = Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .args(["cat-file", "-e", sha])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if exists {
+            let diff_out = Command::new("git")
+                .arg("-C")
+                .arg(project_root)
+                .args(["diff", sha])
+                .output()
+                .map_err(|e| format!("执行 git diff 失败: {}", e))?;
+            if !diff_out.status.success() {
+                let err = String::from_utf8_lossy(&diff_out.stderr).to_string();
+                return Err(format!("git diff 失败: {}", err));
+            }
+            out.push_str(&String::from_utf8_lossy(&diff_out.stdout));
+        } else {
+            out.push_str(&format!(
+                "# warning: commit {} no longer exists in this repo;\n",
+                sha
+            ));
+            out.push_str("# emitting snapshot file listing only.\n\n");
+            append_listing(&mut out, snap);
+        }
+    } else {
+        append_listing(&mut out, snap);
+    }
+
+    // Always append the untracked list as a non-patch note — `git diff`
+    // never includes untracked files so the reviewer would otherwise
+    // miss them.
+    if !snap.untracked.is_empty() {
+        out.push_str("\n# untracked at snapshot time:\n");
+        for p in &snap.untracked {
+            out.push_str(&format!("#   {}\n", p));
+        }
+    }
+
+    Ok(out)
+}
+
+fn append_listing(out: &mut String, snap: &AuditSnapshot) {
+    let buckets: [(&str, &Vec<String>); 5] = [
+        ("modified", &snap.modified),
+        ("added", &snap.added),
+        ("deleted", &snap.deleted),
+        ("renamed", &snap.renamed),
+        ("untracked", &snap.untracked),
+    ];
+    for (label, list) in buckets {
+        if list.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("# {}:\n", label));
+        for p in list {
+            out.push_str(&format!("#   {}\n", p));
+        }
+    }
+}
+
+/// Write a diff export to disk. The caller picks the path via
+/// `pick_diff_save_path`.
+pub fn write_diff_file(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建输出目录失败: {}", e))?;
+    }
+    fs::write(path, content).map_err(|e| format!("写入 diff 文件失败: {}", e))
+}
+
+/// Prompt the user for an output `.patch` location. Cancel → `Ok(None)`.
+/// Uses the same `choose file name` pattern as `bundle_io`.
+pub fn pick_diff_save_path(default_name: &str) -> Result<Option<PathBuf>, String> {
+    let safe_default = default_name.replace('"', "");
+    let script = format!(
+        r#"set target to choose file name with prompt "导出 Git diff 补丁" default name "{}"
+return POSIX path of target"#,
+        safe_default
+    );
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("调用 osascript 失败: {}", e))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        Ok(None)
+    } else {
+        let mut pb = PathBuf::from(path);
+        if pb.extension().is_none() {
+            pb.set_extension("patch");
+        }
+        Ok(Some(pb))
+    }
+}
+
+/// Pop a blocking macOS confirmation dialog. Used before destructive
+/// operations like rollback. Returns true if the user clicked OK.
+pub fn confirm_dialog(message: &str) -> bool {
+    let safe = message.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        r#"display dialog "{}" buttons {{"取消", "确认回滚"}} default button "取消" with icon caution"#,
+        safe
+    );
+    let output = match Command::new("osascript").arg("-e").arg(&script).output() {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
+    }
+    // When OK is clicked, osascript returns `button returned:确认回滚`.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.contains("确认回滚")
+}
+
+// ──────────────────────── rollback ────────────────────────
+
+/// Roll the project back to the recorded HEAD of a snapshot. Current
+/// uncommitted work (tracked *and* untracked) is stashed with a
+/// recognizable message so the user can recover it with
+/// `git stash list` / `git stash pop`.
+///
+/// Returns a human-readable summary (stash ref + new HEAD) on success.
+pub fn rollback_to_snapshot(
+    project_root: &Path,
+    snap: &AuditSnapshot,
+) -> Result<String, String> {
+    if !project_root.join(".git").exists() {
+        return Err("该项目不是 git 仓库，无法回滚".to_string());
+    }
+    let sha = snap
+        .head_sha
+        .as_ref()
+        .ok_or_else(|| "快照没有记录 HEAD SHA，无法回滚".to_string())?;
+
+    // Verify the target commit still exists.
+    let exists = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(["cat-file", "-e", sha])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !exists {
+        return Err(format!("提交 {} 已不存在于本地仓库", sha));
+    }
+
+    // Stash current work (tracked + untracked) so nothing is lost.
+    let stash_msg = format!("agentdesk-rollback-{}", snap.id);
+    let stash_out = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(["stash", "push", "-u", "-m", &stash_msg])
+        .output()
+        .map_err(|e| format!("执行 git stash 失败: {}", e))?;
+    // Note: `git stash push` returns success with "No local changes to save"
+    // when the tree is clean — we treat that as fine and continue.
+    let stash_stdout = String::from_utf8_lossy(&stash_out.stdout).to_string();
+    let stashed = stash_out.status.success()
+        && !stash_stdout.contains("No local changes to save");
+    if !stash_out.status.success() {
+        let err = String::from_utf8_lossy(&stash_out.stderr).to_string();
+        return Err(format!("git stash 失败: {}", err));
+    }
+
+    // Hard reset to the snapshot SHA.
+    let reset_out = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(["reset", "--hard", sha])
+        .output()
+        .map_err(|e| format!("执行 git reset 失败: {}", e))?;
+    if !reset_out.status.success() {
+        let err = String::from_utf8_lossy(&reset_out.stderr).to_string();
+        return Err(format!("git reset 失败: {}", err));
+    }
+
+    let short = sha.chars().take(7).collect::<String>();
+    if stashed {
+        Ok(format!(
+            "已回滚到 {} · 原有改动已暂存到 stash: {}",
+            short, stash_msg
+        ))
+    } else {
+        Ok(format!("已回滚到 {} · 工作区此前已是干净状态", short))
+    }
+}
+
 // ──────────────────────── helpers ────────────────────────
 
 fn run_git(project_root: &Path, args: &[&str]) -> Option<String> {

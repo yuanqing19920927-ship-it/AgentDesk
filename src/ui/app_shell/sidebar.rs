@@ -13,9 +13,11 @@ fn initial_char(name: &str) -> String {
 pub fn Sidebar(
     projects: Vec<Project>,
     selected_idx: Option<usize>,
+    unread_count: usize,
     on_select: EventHandler<usize>,
     on_settings: EventHandler<()>,
     on_templates: EventHandler<()>,
+    on_notifications: EventHandler<()>,
 ) -> Element {
     let mut nicknames = use_signal(|| project_manager::load_nicknames());
     let mut editing_idx = use_signal(|| None::<usize>);
@@ -160,6 +162,18 @@ pub fn Sidebar(
             }
 
             div { class: "sidebar-footer",
+                div { class: "sidebar-footer-btn", onclick: move |_| on_notifications.call(()),
+                    div { class: "sidebar-bell-wrap",
+                        div { class: "icon-tile icon-tile-sm tile-orange", dangerous_inner_html: icons::BELL }
+                        if unread_count > 0 {
+                            {
+                                let label = if unread_count > 99 { "99+".to_string() } else { unread_count.to_string() };
+                                rsx! { span { class: "sidebar-bell-badge", "{label}" } }
+                            }
+                        }
+                    }
+                    span { "通知" }
+                }
                 div { class: "sidebar-footer-btn", onclick: move |_| on_templates.call(()),
                     div { class: "icon-tile icon-tile-sm tile-indigo", dangerous_inner_html: icons::DOC_STACK }
                     span { "模板" }

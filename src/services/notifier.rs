@@ -111,6 +111,42 @@ pub fn clear_history() -> Result<(), String> {
     save_history(&[])
 }
 
+/// Mark a single notification as read, keyed by timestamp. Used by the
+/// in-app notification center when the user clicks an individual entry.
+#[allow(dead_code)]
+pub fn mark_read(timestamp: chrono::DateTime<Utc>) -> bool {
+    let _lock = HISTORY_LOCK.lock().unwrap();
+    let mut events = load_history();
+    let mut touched = false;
+    for e in events.iter_mut() {
+        if e.timestamp == timestamp && !e.read {
+            e.read = true;
+            touched = true;
+            break;
+        }
+    }
+    if touched {
+        let _ = save_history(&events);
+    }
+    touched
+}
+
+/// Delete a single notification by timestamp. Returns true when a
+/// matching entry was removed.
+#[allow(dead_code)]
+pub fn delete_event(timestamp: chrono::DateTime<Utc>) -> bool {
+    let _lock = HISTORY_LOCK.lock().unwrap();
+    let mut events = load_history();
+    let before = events.len();
+    events.retain(|e| e.timestamp != timestamp);
+    if events.len() != before {
+        let _ = save_history(&events);
+        true
+    } else {
+        false
+    }
+}
+
 // ──────────────────────── rule evaluation ────────────────────────
 
 /// Decide whether a notification should be delivered to macOS given the
